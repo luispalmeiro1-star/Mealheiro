@@ -1,34 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import { createClient } from "@supabase/supabase-js";
 
 const SB_URL = "https://ptuqljedrqsywzmersxl.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0dXFsamVkcnFzeXd6bWVyc3hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NzM3MTcsImV4cCI6MjEwMjE0OTcxN30.QV4XHYqNT1j2trlqH9iHe-tu_w4KSmFU-3RoXLVEGw4";
-const SB_HEADERS = { "Content-Type": "application/json", "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Prefer": "return=representation" };
-
-async function sbGet(table, extra = "") {
-  const r = await fetch(`${SB_URL}/rest/v1/${table}?order=id.desc${extra}`, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
-}
-async function sbInsert(table, body) {
-  const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: SB_HEADERS, body: JSON.stringify(body) });
-  return r.ok ? r.json() : null;
-}
-async function sbUpdate(table, id, body) {
-  await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, { method: "PATCH", headers: SB_HEADERS, body: JSON.stringify(body) });
-}
-async function sbDelete(table, id) {
-  await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", headers: SB_HEADERS });
-}
-async function sbUpsert(table, body, onConflict) {
-  const r = await fetch(`${SB_URL}/rest/v1/${table}?on_conflict=${onConflict}`, { method: "POST", headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(body) });
-  return r.ok ? r.json() : null;
-}
-async function sbDeleteWhere(table, where) {
-  await fetch(`${SB_URL}/rest/v1/${table}?${where}`, { method: "DELETE", headers: SB_HEADERS });
-}
-async function sbPatchWhere(table, where, body) {
-  await fetch(`${SB_URL}/rest/v1/${table}?${where}`, { method: "PATCH", headers: SB_HEADERS, body: JSON.stringify(body) });
-}
+const supabase = createClient(SB_URL, SB_KEY);
 
 const CATEGORIAS = {
   receita: ["Salário", "Freelance", "Investimentos", "Rendas", "Outros"],
@@ -61,14 +37,16 @@ const LISTA_PRODUTOS = {
 const fmt = n => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(n || 0);
 const monthKey = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}`; };
 const today = () => new Date().toISOString().slice(0, 10);
-const gerarCodigo = () => Math.random().toString(36).substring(2,5).toUpperCase() + "-" + Math.random().toString(36).substring(2,5).toUpperCase();
 
 function Card({ children, style }) { return <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:20, ...style }}>{children}</div>; }
 function ProgressBar({ pct, color, height=7 }) { return <div style={{ background:C.faint, borderRadius:99, height, overflow:"hidden" }}><div style={{ width:`${Math.min(pct,100)}%`, height, background:color, borderRadius:99, transition:"width 0.5s" }} /></div>; }
 function Spinner() { return <div style={{ width:18, height:18, border:`2px solid ${C.border}`, borderTop:`2px solid ${C.text}`, borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />; }
 
 // ── Ecrã de Login ─────────────────────────────────────────────────────────────
-function EcraLogin({ onLogin }) {
+// Login/registo passam por funções RPC no Supabase (registar_utilizador, resolver_email):
+// a password nunca é guardada nem comparada em texto simples — quem trata disso é o
+// Supabase Auth. Depois de autenticado, o resto da app segue a sessão via onAuthStateChange.
+function EcraLogin() {
   const [passo, setPasso] = useState("inicio"); // inicio | login | registo | juntar
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -79,43 +57,29 @@ function EcraLogin({ onLogin }) {
   async function fazerLogin() {
     if (!username.trim() || !password.trim()) return setErro("Preenche todos os campos.");
     setLoading(true); setErro("");
-    const users = await sbGet("utilizadores", `&username=eq.${encodeURIComponent(username.trim())}&password=eq.${encodeURIComponent(password.trim())}`);
-    if (!users || users.length === 0) { setErro("Utilizador ou password incorretos."); setLoading(false); return; }
-    const user = users[0];
-    localStorage.setItem("ml_uid", user.id);
-    localStorage.setItem("ml_username", user.username);
-    localStorage.setItem("ml_casa", user.casa_codigo);
-    onLogin(user);
+    const { data: email } = await supabase.rpc("resolver_email", { p_username: username.trim() });
+    if (!email) { setErro("Utilizador ou password incorretos."); setLoading(false); return; }
+    const { error } = await supabase.auth.signInWithPassword({ email, password: password.trim() });
+    if (error) { setErro("Utilizador ou password incorretos."); setLoading(false); return; }
     setLoading(false);
   }
 
   async function registar(comCasa) {
     if (!username.trim() || !password.trim()) return setErro("Preenche todos os campos.");
+    if (password.trim().length < 6) return setErro("A password tem de ter pelo menos 6 caracteres.");
     if (comCasa && !codigoCasa.trim()) return setErro("Indica o código da casa.");
     setLoading(true); setErro("");
 
-    // Check username not taken
-    const existe = await sbGet("utilizadores", `&username=eq.${encodeURIComponent(username.trim())}`);
-    if (existe && existe.length > 0) { setErro("Este utilizador já existe. Escolhe outro nome."); setLoading(false); return; }
+    const { error } = await supabase.rpc("registar_utilizador", {
+      p_username: username.trim(),
+      p_password: password.trim(),
+      p_casa_codigo: comCasa ? codigoCasa.trim() : null,
+    });
+    if (error) { setErro(error.message); setLoading(false); return; }
 
-    let casa = codigoCasa.trim().toUpperCase();
-    if (!comCasa) {
-      // Create new house
-      casa = gerarCodigo();
-      await sbInsert("casas", { codigo: casa });
-    } else {
-      // Verify house exists
-      const casas = await sbGet("casas", `&codigo=eq.${casa}`);
-      if (!casas || casas.length === 0) { setErro("Código de casa não encontrado."); setLoading(false); return; }
-    }
-
-    const res = await sbInsert("utilizadores", { username: username.trim(), password: password.trim(), casa_codigo: casa });
-    if (!res || !res[0]) { setErro("Erro ao criar conta. Tenta novamente."); setLoading(false); return; }
-    const user = res[0];
-    localStorage.setItem("ml_uid", user.id);
-    localStorage.setItem("ml_username", user.username);
-    localStorage.setItem("ml_casa", user.casa_codigo);
-    onLogin(user);
+    const { data: email } = await supabase.rpc("resolver_email", { p_username: username.trim() });
+    const { error: erroLogin } = await supabase.auth.signInWithPassword({ email, password: password.trim() });
+    if (erroLogin) { setErro("Conta criada. Agora entra com o teu utilizador e password."); setPasso("login"); setLoading(false); return; }
     setLoading(false);
   }
 
@@ -184,12 +148,8 @@ function EcraLogin({ onLogin }) {
 const TABS = ["Resumo", "Transações", "Orçamentos", "Metas", "Compras", "Bebé", "Relatórios"];
 
 export default function App() {
-  const [user, setUser] = useState(() => {
-    const uid = localStorage.getItem("ml_uid");
-    const username = localStorage.getItem("ml_username");
-    const casa = localStorage.getItem("ml_casa");
-    return uid && username && casa ? { id: uid, username, casa_codigo: casa } : null;
-  });
+  const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
+  const [user, setUser] = useState(undefined); // undefined = a verificar, null = sem sessão, {..} = autenticado
 
   const [tab, setTab] = useState("Resumo");
   const [txs, setTxs] = useState([]);
@@ -197,6 +157,7 @@ export default function App() {
   const [goals, setGoals] = useState([]);
   const [lista, setLista] = useState([]); // [{produto, quantidade}]
   const [stock, setStock] = useState([]);
+  const [customProds, setCustomProds] = useState({}); // { categoria: [produtos] }
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -204,49 +165,69 @@ export default function App() {
 
   const casaCodigo = user?.casa_codigo;
 
+  // Segue a sessão do Supabase Auth — login/registo/logout mexem só na sessão,
+  // isto reage e carrega o utilizador da casa correspondente.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session === undefined) return;
+    if (!session) { setUser(null); return; }
+    setLoading(true);
+    supabase.from("utilizadores").select("id,username,casa_codigo").eq("auth_id", session.user.id).single()
+      .then(({ data }) => setUser(data || null));
+  }, [session]);
+
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [t, b, g, l, s] = await Promise.all([
-      sbGet("transacoes", `&casa_codigo=eq.${casaCodigo}`),
-      sbGet("orcamentos", `&casa_codigo=eq.${casaCodigo}`),
-      sbGet("metas", `&casa_codigo=eq.${casaCodigo}`),
-      sbGet("lista_compras", `&casa_codigo=eq.${casaCodigo}`),
-      sbGet("stock_bebe", `&casa_codigo=eq.${casaCodigo}`),
+    const [tr, br, gr, lr, sr, cr] = await Promise.all([
+      supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
+      supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
+      supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
+      supabase.from("lista_compras").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
+      supabase.from("stock_bebe").select("*").eq("casa_codigo", casaCodigo),
+      supabase.from("custom_produtos").select("*").eq("casa_codigo", casaCodigo),
     ]);
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
       const lastVisit = localStorage.getItem("ml_last_visit");
       if (lastVisit) {
         const novos = [];
-        const txsNovos = (t||[]).filter(tx => tx.pessoa !== user.username && new Date(tx.created_at) > new Date(lastVisit));
+        const txsNovos = t.filter(tx => tx.pessoa !== user.username && new Date(tx.created_at) > new Date(lastVisit));
         txsNovos.forEach(tx => novos.push(`${tx.pessoa} adicionou uma ${tx.tipo === "receita" ? "receita" : "despesa"}: ${tx.descricao || tx.categoria} (${parseFloat(tx.valor).toFixed(2)}€)`));
-        const listaNova = (l||[]).filter(item => new Date(item.created_at) > new Date(lastVisit) && (!item.adicionado_por || item.adicionado_por !== user.username));
+        const listaNova = l.filter(item => new Date(item.created_at) > new Date(lastVisit) && (!item.adicionado_por || item.adicionado_por !== user.username));
         if (listaNova.length > 0) novos.push(`A lista de compras foi atualizada — ${listaNova.length} produto${listaNova.length>1?"s adicionados":" adicionado"}`);
         if (novos.length > 0) setAvisos(novos);
       }
     }
 
+    const cpMap = {};
+    c.forEach(row => { cpMap[row.categoria] = [...(cpMap[row.categoria]||[]), row.produto]; });
+
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t||[]); setBudgets(b||[]); setGoals(g||[]); setLista(l||[]); setStock(s||[]);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap);
     setLoading(false); setSyncing(false);
   }
 
-  useEffect(() => { if (user) loadAll(true); else setLoading(false); }, [casaCodigo]);
+  useEffect(() => { if (user) loadAll(true); }, [casaCodigo]);
 
   // Save last_visit when user leaves the app
   useEffect(() => {
-    const handleHide = () => { localStorage.setItem("ml_last_visit", new Date().toISOString()); };
-    document.addEventListener("visibilitychange", () => { if (document.hidden) handleHide(); });
+    function handleHide() { if (document.hidden) localStorage.setItem("ml_last_visit", new Date().toISOString()); }
+    document.addEventListener("visibilitychange", handleHide);
     return () => document.removeEventListener("visibilitychange", handleHide);
   }, []);
 
-  function onLogin(u) { setUser(u); setLoading(true); }
-  function sair() {
-    localStorage.removeItem("ml_uid"); localStorage.removeItem("ml_username"); localStorage.removeItem("ml_casa");
-    setUser(null); setTxs([]); setBudgets([]); setGoals([]); setLista([]);
+  async function sair() {
+    await supabase.auth.signOut();
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({});
   }
 
   const now = new Date();
@@ -255,14 +236,46 @@ export default function App() {
   const receitas = useMemo(() => monthTxs.filter(t=>t.tipo==="receita").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
   const despesas = useMemo(() => monthTxs.filter(t=>t.tipo==="despesa").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
 
-  async function addTx(tx) { const res = await sbInsert("transacoes", {...tx, casa_codigo:casaCodigo, pessoa:user.username}); if (res&&res[0]) setTxs(p=>[res[0],...p]); setShowForm(false); }
-  async function deleteTx(id) { await sbDelete("transacoes", id); setTxs(p=>p.filter(t=>t.id!==id)); }
-  async function saveBudget(categoria, limite) { await sbUpsert("orcamentos", {categoria, limite, casa_codigo:casaCodigo}, "categoria"); setBudgets(p=>{ const ex=p.find(b=>b.categoria===categoria); return ex?p.map(b=>b.categoria===categoria?{...b,limite}:b):[...p,{categoria,limite}]; }); }
-  async function addGoal(g) { const res = await sbInsert("metas", {...g, casa_codigo:casaCodigo}); if (res&&res[0]) setGoals(p=>[...p,res[0]]); }
-  async function updateGoal(id, data) { await sbUpdate("metas", id, data); setGoals(p=>p.map(g=>g.id===id?{...g,...data}:g)); }
-  async function deleteGoal(id) { await sbDelete("metas", id); setGoals(p=>p.filter(g=>g.id!==id)); }
+  async function addTx(tx) {
+    const { data, error } = await supabase.from("transacoes").insert({...tx, casa_codigo:casaCodigo, pessoa:user.username}).select();
+    if (error) { alert("Erro ao guardar transação: " + error.message); return; }
+    if (data && data[0]) setTxs(p=>[data[0],...p]);
+    setShowForm(false);
+  }
+  async function deleteTx(id) {
+    const { error } = await supabase.from("transacoes").delete().eq("id", id);
+    if (error) { alert("Erro ao remover transação: " + error.message); return; }
+    setTxs(p=>p.filter(t=>t.id!==id));
+  }
+  async function saveBudget(categoria, limite) {
+    const { error } = await supabase.from("orcamentos").upsert({categoria, limite, casa_codigo:casaCodigo}, { onConflict: "casa_codigo,categoria" });
+    if (error) { alert("Erro ao guardar orçamento: " + error.message); return; }
+    setBudgets(p=>{ const ex=p.find(b=>b.categoria===categoria); return ex?p.map(b=>b.categoria===categoria?{...b,limite}:b):[...p,{categoria,limite}]; });
+  }
+  async function addGoal(g) {
+    const { data, error } = await supabase.from("metas").insert({...g, casa_codigo:casaCodigo}).select();
+    if (error) { alert("Erro ao criar meta: " + error.message); return; }
+    if (data && data[0]) setGoals(p=>[...p,data[0]]);
+  }
+  async function updateGoal(id, patch) {
+    const { error } = await supabase.from("metas").update(patch).eq("id", id);
+    if (error) { alert("Erro ao atualizar meta: " + error.message); return; }
+    setGoals(p=>p.map(g=>g.id===id?{...g,...patch}:g));
+  }
+  async function deleteGoal(id) {
+    const { error } = await supabase.from("metas").delete().eq("id", id);
+    if (error) { alert("Erro ao remover meta: " + error.message); return; }
+    setGoals(p=>p.filter(g=>g.id!==id));
+  }
 
-  if (!user) return <EcraLogin onLogin={onLogin} />;
+  if (session === undefined || user === undefined) return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <Spinner />
+    </div>
+  );
+
+  if (!user) return <EcraLogin />;
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, fontFamily:"system-ui" }}>
@@ -287,7 +300,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={loadAll} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center" }}>{syncing?<Spinner />:<span style={{ fontSize:14, color:C.muted }}>↻</span>}</button>
+              <button onClick={()=>loadAll(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center" }}>{syncing?<Spinner />:<span style={{ fontSize:14, color:C.muted }}>↻</span>}</button>
               <button onClick={sair} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:12, color:C.muted }}>Sair</button>
               <button onClick={()=>setShowForm(true)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Adicionar</button>
             </div>
@@ -317,7 +330,7 @@ export default function App() {
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
-        {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} />}
+        {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
         {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} />}
         {tab==="Relatórios" && <Relatorios txs={txs} now={now} />}
       </div>
@@ -367,7 +380,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
   const [showCodigo, setShowCodigo] = useState(false);
 
   useEffect(() => {
-    sbGet("utilizadores", `&casa_codigo=eq.${casaCodigo}`).then(m => setMembros(m||[]));
+    supabase.from("utilizadores").select("*").eq("casa_codigo", casaCodigo).then(({ data }) => setMembros(data || []));
   }, [casaCodigo]);
 
   const contrib = useMemo(() => {
@@ -408,7 +421,8 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
               <span key={m.id} onClick={async () => {
                 if (m.username === username) return alert("Não podes remover a tua própria conta.");
                 if (window.confirm(`Remover o membro "${m.username}"?`)) {
-                  await sbDelete("utilizadores", m.id);
+                  const { error } = await supabase.rpc("remover_membro", { p_utilizador_id: m.id });
+                  if (error) { alert("Erro ao remover membro: " + error.message); return; }
                   setMembros(prev => prev.filter(x => x.id !== m.id));
                 }
               }} style={{ fontSize:12, color:C.muted, background:C.faint, borderRadius:99, padding:"3px 10px", cursor: m.username===username?"default":"pointer", border:`1px solid ${C.border}` }}>
@@ -602,15 +616,12 @@ function Metas({ goals, onAdd, onUpdate, onDelete }) {
   );
 }
 
-function ListaCompras({ lista, setLista, casaCodigo, username }) {
+function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setCustomProds }) {
   const [view, setView] = useState("selecionar");
   const [search, setSearch] = useState("");
   const [catAberta, setCatAberta] = useState(null);
-  const [customProds, setCustomProds] = useState(() => { try { return JSON.parse(localStorage.getItem("mealheiro_custom_prods"))||{}; } catch { return {}; } });
   const [addingTo, setAddingTo] = useState(null);
   const [novoNome, setNovoNome] = useState("");
-
-  useEffect(()=>{ try { localStorage.setItem("mealheiro_custom_prods",JSON.stringify(customProds)); } catch {} },[customProds]);
 
   const listaAtiva = lista.map(r => r.produto);
   const qtdMap = useMemo(() => { const m={}; lista.forEach(r=>{ if(r.quantidade) m[r.produto]=r.quantidade; }); return m; }, [lista]);
@@ -627,40 +638,50 @@ function ListaCompras({ lista, setLista, casaCodigo, username }) {
 
   async function toggle(p) {
     if (listaAtiva.includes(p)) {
-      await sbDeleteWhere("lista_compras", `casa_codigo=eq.${casaCodigo}&produto=eq.${encodeURIComponent(p)}`);
+      const { error } = await supabase.from("lista_compras").delete().eq("casa_codigo", casaCodigo).eq("produto", p);
+      if (error) { alert("Erro: " + error.message); return; }
       setLista(l=>l.filter(r=>r.produto!==p));
     } else {
-      const res = await sbInsert("lista_compras", {casa_codigo:casaCodigo, produto:p, quantidade:null, adicionado_por:username});
-      if (res&&res[0]) setLista(l=>[...l, res[0]]);
+      const { data, error } = await supabase.from("lista_compras").insert({casa_codigo:casaCodigo, produto:p, quantidade:null, adicionado_por:username}).select();
+      if (error) { alert("Erro: " + error.message); return; }
+      if (data && data[0]) setLista(l=>[...l, data[0]]);
     }
   }
 
   async function comprado(p) {
-    await sbDeleteWhere("lista_compras", `casa_codigo=eq.${casaCodigo}&produto=eq.${encodeURIComponent(p)}`);
+    const { error } = await supabase.from("lista_compras").delete().eq("casa_codigo", casaCodigo).eq("produto", p);
+    if (error) { alert("Erro: " + error.message); return; }
     setLista(l=>l.filter(r=>r.produto!==p));
   }
 
   async function limpar() {
     if (window.confirm("Limpar toda a lista?")) {
-      await sbDeleteWhere("lista_compras", `casa_codigo=eq.${casaCodigo}`);
+      const { error } = await supabase.from("lista_compras").delete().eq("casa_codigo", casaCodigo);
+      if (error) { alert("Erro: " + error.message); return; }
       setLista([]);
     }
   }
 
   async function atualizarQtd(p, qtd) {
-    await sbPatchWhere("lista_compras", `casa_codigo=eq.${casaCodigo}&produto=eq.${encodeURIComponent(p)}`, {quantidade:qtd});
+    const { error } = await supabase.from("lista_compras").update({quantidade:qtd}).eq("casa_codigo", casaCodigo).eq("produto", p);
+    if (error) { alert("Erro: " + error.message); return; }
     setLista(l=>l.map(r=>r.produto===p?{...r,quantidade:qtd}:r));
   }
 
   async function adicionarProduto(cat) {
     const n=novoNome.trim(); if(!n) return;
+    const { error: erroCustom } = await supabase.from("custom_produtos").insert({casa_codigo:casaCodigo, categoria:cat, produto:n});
+    if (erroCustom) { alert("Erro ao adicionar produto: " + erroCustom.message); return; }
     setCustomProds(prev=>({...prev,[cat]:[...(prev[cat]||[]),n]}));
-    const res = await sbInsert("lista_compras", {casa_codigo:casaCodigo, produto:n, quantidade:null, adicionado_por:username});
-    if (res&&res[0]) setLista(l=>[...l,res[0]]);
+    const { data, error } = await supabase.from("lista_compras").insert({casa_codigo:casaCodigo, produto:n, quantidade:null, adicionado_por:username}).select();
+    if (error) { alert("Erro ao adicionar à lista: " + error.message); return; }
+    if (data && data[0]) setLista(l=>[...l,data[0]]);
     setNovoNome(""); setAddingTo(null);
   }
 
-  function removerCustom(cat, prod) {
+  async function removerCustom(cat, prod) {
+    const { error } = await supabase.from("custom_produtos").delete().eq("casa_codigo", casaCodigo).eq("categoria", cat).eq("produto", prod);
+    if (error) { alert("Erro ao remover produto: " + error.message); return; }
     setCustomProds(prev=>({...prev,[cat]:(prev[cat]||[]).filter(p=>p!==prod)}));
     comprado(prod);
   }
@@ -815,14 +836,16 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
   const [novoProduto, setNovoProduto] = useState("");
   const [novaUnidade, setNovaUnidade] = useState("unid");
   const [saving, setSaving] = useState(false);
+  const [pendingIds, setPendingIds] = useState(() => new Set()); // itens com um +/- em curso, para evitar cliques rápidos a perderem-se
 
   const listaAtiva = lista.map(r => r.produto);
 
   async function adicionarProduto(nome, unidade) {
     if (!nome.trim()) return;
     setSaving(true);
-    const res = await sbInsert("stock_bebe", { casa_codigo: casaCodigo, produto: nome.trim(), quantidade: 0, minimo: 0, unidade });
-    if (res && res[0]) setStock(p => [...p, res[0]]);
+    const { data, error } = await supabase.from("stock_bebe").insert({ casa_codigo: casaCodigo, produto: nome.trim(), quantidade: 0, minimo: 0, unidade }).select();
+    if (error) { alert("Erro ao adicionar produto: " + error.message); setSaving(false); return; }
+    if (data && data[0]) setStock(p => [...p, data[0]]);
     setNovoProduto(""); setNovaUnidade("unid"); setShowAdicionar(false);
     setSaving(false);
   }
@@ -830,39 +853,49 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
   async function adicionarProdutoBase(prod) {
     const existe = stock.find(s => s.produto === prod.nome);
     if (existe) return;
-    const res = await sbInsert("stock_bebe", { casa_codigo: casaCodigo, produto: prod.nome, quantidade: 0, minimo: 0, unidade: prod.unidade });
-    if (res && res[0]) setStock(p => [...p, res[0]]);
+    const { data, error } = await supabase.from("stock_bebe").insert({ casa_codigo: casaCodigo, produto: prod.nome, quantidade: 0, minimo: 0, unidade: prod.unidade }).select();
+    if (error) { alert("Erro ao adicionar produto: " + error.message); return; }
+    if (data && data[0]) setStock(p => [...p, data[0]]);
   }
 
   async function atualizarQtd(id, delta) {
+    if (pendingIds.has(id)) return; // já há um pedido em curso para este item — ignora cliques repetidos
     const item = stock.find(s => s.id === id);
     if (!item) return;
-    const novaQtd = Math.max(0, item.quantidade + delta);
-    await sbUpdate("stock_bebe", id, { quantidade: novaQtd });
-    const atualizado = { ...item, quantidade: novaQtd };
-    setStock(p => p.map(s => s.id === id ? atualizado : s));
+    setPendingIds(prev => new Set(prev).add(id));
+    try {
+      const novaQtd = Math.max(0, item.quantidade + delta);
+      const { error } = await supabase.from("stock_bebe").update({ quantidade: novaQtd }).eq("id", id);
+      if (error) { alert("Erro ao atualizar quantidade: " + error.message); return; }
+      const atualizado = { ...item, quantidade: novaQtd };
+      setStock(p => p.map(s => s.id === id ? atualizado : s));
 
-    // Auto-add to lista de compras if below minimum
-    if (novaQtd <= item.minimo && item.minimo > 0 && !listaAtiva.includes(item.produto)) {
-      const res = await sbInsert("lista_compras", { casa_codigo: casaCodigo, produto: item.produto, quantidade: null, adicionado_por: username });
-      if (res && res[0]) setLista(l => [...l, res[0]]);
-    }
-    // Remove from lista if above minimum
-    if (novaQtd > item.minimo && listaAtiva.includes(item.produto)) {
-      await sbDeleteWhere("lista_compras", `casa_codigo=eq.${casaCodigo}&produto=eq.${encodeURIComponent(item.produto)}`);
-      setLista(l => l.filter(r => r.produto !== item.produto));
+      // Auto-add to lista de compras if below minimum
+      if (novaQtd <= item.minimo && item.minimo > 0 && !listaAtiva.includes(item.produto)) {
+        const { data } = await supabase.from("lista_compras").insert({ casa_codigo: casaCodigo, produto: item.produto, quantidade: null, adicionado_por: username }).select();
+        if (data && data[0]) setLista(l => [...l, data[0]]);
+      }
+      // Remove from lista if above minimum
+      if (novaQtd > item.minimo && listaAtiva.includes(item.produto)) {
+        const { error: erroLista } = await supabase.from("lista_compras").delete().eq("casa_codigo", casaCodigo).eq("produto", item.produto);
+        if (!erroLista) setLista(l => l.filter(r => r.produto !== item.produto));
+      }
+    } finally {
+      setPendingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     }
   }
 
   async function atualizarMinimo(id, minimo) {
-    await sbUpdate("stock_bebe", id, { minimo: parseInt(minimo) || 0 });
+    const { error } = await supabase.from("stock_bebe").update({ minimo: parseInt(minimo) || 0 }).eq("id", id);
+    if (error) { alert("Erro ao atualizar mínimo: " + error.message); return; }
     setStock(p => p.map(s => s.id === id ? { ...s, minimo: parseInt(minimo) || 0 } : s));
     setEditando(null);
   }
 
   async function removerProduto(id) {
     if (!window.confirm("Remover este produto do stock?")) return;
-    await sbDelete("stock_bebe", id);
+    const { error } = await supabase.from("stock_bebe").delete().eq("id", id);
+    if (error) { alert("Erro ao remover produto: " + error.message); return; }
     setStock(p => p.filter(s => s.id !== id));
   }
 
@@ -934,12 +967,12 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
                 )}
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <button onClick={()=>atualizarQtd(item.id,-1)} style={{ width:32, height:32, borderRadius:"50%", border:`1.5px solid ${C.border}`, background:"none", cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text }}>−</button>
+                <button disabled={pendingIds.has(item.id)} onClick={()=>atualizarQtd(item.id,-1)} style={{ width:32, height:32, borderRadius:"50%", border:`1.5px solid ${C.border}`, background:"none", cursor:pendingIds.has(item.id)?"default":"pointer", opacity:pendingIds.has(item.id)?0.5:1, fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text }}>−</button>
                 <div style={{ textAlign:"center", minWidth:36 }}>
                   <p style={{ margin:0, fontSize:20, fontWeight:800, color: emFalta?C.expense:C.text }}>{item.quantidade}</p>
                   <p style={{ margin:0, fontSize:10, color:C.muted }}>{item.unidade}</p>
                 </div>
-                <button onClick={()=>atualizarQtd(item.id,1)} style={{ width:32, height:32, borderRadius:"50%", border:`1.5px solid ${C.border}`, background:"none", cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text }}>+</button>
+                <button disabled={pendingIds.has(item.id)} onClick={()=>atualizarQtd(item.id,1)} style={{ width:32, height:32, borderRadius:"50%", border:`1.5px solid ${C.border}`, background:"none", cursor:pendingIds.has(item.id)?"default":"pointer", opacity:pendingIds.has(item.id)?0.5:1, fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text }}>+</button>
                 <button onClick={()=>removerProduto(item.id)} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, marginLeft:4 }}>🗑</button>
               </div>
             </div>
