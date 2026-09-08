@@ -5,6 +5,35 @@ import { createClient } from "@supabase/supabase-js";
 const SB_URL = "https://ptuqljedrqsywzmersxl.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0dXFsamVkcnFzeXd6bWVyc3hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NzM3MTcsImV4cCI6MjEwMjE0OTcxN30.QV4XHYqNT1j2trlqH9iHe-tu_w4KSmFU-3RoXLVEGw4";
 const supabase = createClient(SB_URL, SB_KEY);
+const VAPID_PUBLIC_KEY = "BKW_ApWBzs6bLipifF8L8xdDyxWbDuLpRGYlTDXZWf-BZ1BfXlzbFQhVqfSht-666Ri-wHMKfbaBLfdL1_DAttU";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function ativarLembretes(username, casaCodigo, userId) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    alert("O teu navegador não suporta notificações.");
+    return false;
+  }
+  const permissao = await Notification.requestPermission();
+  if (permissao !== "granted") { alert("Não deste permissão para notificações."); return false; }
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+  }
+  const raw = sub.toJSON();
+  const { error } = await supabase.from("push_subscriptions").upsert({
+    user_id: userId, username, casa_codigo: casaCodigo,
+    endpoint: raw.endpoint, p256dh: raw.keys.p256dh, auth: raw.keys.auth,
+  }, { onConflict: "endpoint" });
+  if (error) { alert("Erro ao ativar lembretes: " + error.message); return false; }
+  return true;
+}
 
 const CATEGORIAS = {
   receita: ["Salário", "Freelance", "Investimentos", "Rendas", "Outros"],
@@ -162,6 +191,12 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [avisos, setAvisos] = useState([]);
+  const [notifOn, setNotifOn] = useState(false);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.ready.then(reg => reg.pushManager.getSubscription()).then(sub => setNotifOn(!!sub)).catch(()=>{});
+  }, []);
 
   const casaCodigo = user?.casa_codigo;
 
@@ -176,8 +211,11 @@ export default function App() {
   useEffect(() => {
     if (session === undefined) return;
     if (!session) { setUser(null); return; }
+    // Se já temos o utilizador certo carregado (ex: apenas o token foi renovado
+    // automaticamente), não voltamos a mostrar o ecrã de loading nem a repetir o pedido.
+    if (user && user.id !== undefined && session.user.id === user.auth_id) return;
     setLoading(true);
-    supabase.from("utilizadores").select("id,username,casa_codigo").eq("auth_id", session.user.id).single()
+    supabase.from("utilizadores").select("id,username,casa_codigo,auth_id").eq("auth_id", session.user.id).single()
       .then(({ data }) => setUser(data || null));
   }, [session]);
 
@@ -218,12 +256,27 @@ export default function App() {
 
   useEffect(() => { if (user) loadAll(true); }, [casaCodigo]);
 
-  // Save last_visit when user leaves the app
+  // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
-    function handleHide() { if (document.hidden) localStorage.setItem("ml_last_visit", new Date().toISOString()); }
+    if (!casaCodigo) return;
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos"];
+    const channel = supabase.channel(`casa-${casaCodigo}`);
+    tabelas.forEach(tabela => {
+      channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
+    });
+    channel.subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [casaCodigo]);
+
+  // Save last_visit when user leaves the app, e atualiza dados quando volta a ficar visível
+  useEffect(() => {
+    function handleHide() {
+      if (document.hidden) { localStorage.setItem("ml_last_visit", new Date().toISOString()); }
+      else if (casaCodigo) { loadAll(false); }
+    }
     document.addEventListener("visibilitychange", handleHide);
     return () => document.removeEventListener("visibilitychange", handleHide);
-  }, []);
+  }, [casaCodigo]);
 
   async function sair() {
     await supabase.auth.signOut();
@@ -301,6 +354,7 @@ export default function App() {
             </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               <button onClick={()=>loadAll(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center" }}>{syncing?<Spinner />:<span style={{ fontSize:14, color:C.muted }}>↻</span>}</button>
+              <button onClick={async()=>{ const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } }} style={{ background:notifOn?C.text:"none", color:notifOn?"#fff":C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14 }} title="Ativar lembretes diários">{notifOn?"🔔":"🔕"}</button>
               <button onClick={sair} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:12, color:C.muted }}>Sair</button>
               <button onClick={()=>setShowForm(true)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Adicionar</button>
             </div>
@@ -380,7 +434,15 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
   const [showCodigo, setShowCodigo] = useState(false);
 
   useEffect(() => {
-    supabase.from("utilizadores").select("*").eq("casa_codigo", casaCodigo).then(({ data }) => setMembros(data || []));
+    if (!casaCodigo) return;
+    function carregar() {
+      supabase.from("utilizadores").select("*").eq("casa_codigo", casaCodigo).then(({ data }) => setMembros(data || []));
+    }
+    carregar();
+    const channel = supabase.channel(`membros-${casaCodigo}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "utilizadores", filter: `casa_codigo=eq.${casaCodigo}` }, carregar)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [casaCodigo]);
 
   const contrib = useMemo(() => {
@@ -533,6 +595,9 @@ function Transacoes({ txs, onDelete }) {
 function Orcamentos({ monthTxs, budgets, onSave }) {
   const getLimit = cat => { const b=budgets.find(b=>b.categoria===cat); return b?parseFloat(b.limite):0; };
   const [locals, setLocals] = useState({});
+  // Se outra pessoa mudar um orçamento, esquece o valor que estava a ser editado
+  // localmente para o input voltar a refletir o que está guardado.
+  useEffect(() => { setLocals({}); }, [budgets]);
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
       <p style={{ margin:"0 0 8px", color:C.muted, fontSize:13 }}>Define limites mensais por categoria.</p>

@@ -6,6 +6,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.js",
+      injectManifest: { injectionPoint: "self.__WB_MANIFEST" },
       includeAssets: ["favicon.png", "icon-192.png", "icon-512.png"],
       manifest: {
         name: "Mealheiro Familia",
