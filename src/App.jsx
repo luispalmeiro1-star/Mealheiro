@@ -176,8 +176,11 @@ export default function App() {
   useEffect(() => {
     if (session === undefined) return;
     if (!session) { setUser(null); return; }
+    // Se já temos o utilizador certo carregado (ex: apenas o token foi renovado
+    // automaticamente), não voltamos a mostrar o ecrã de loading nem a repetir o pedido.
+    if (user && user.id !== undefined && session.user.id === user.auth_id) return;
     setLoading(true);
-    supabase.from("utilizadores").select("id,username,casa_codigo").eq("auth_id", session.user.id).single()
+    supabase.from("utilizadores").select("id,username,casa_codigo,auth_id").eq("auth_id", session.user.id).single()
       .then(({ data }) => setUser(data || null));
   }, [session]);
 
@@ -395,7 +398,15 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
   const [showCodigo, setShowCodigo] = useState(false);
 
   useEffect(() => {
-    supabase.from("utilizadores").select("*").eq("casa_codigo", casaCodigo).then(({ data }) => setMembros(data || []));
+    if (!casaCodigo) return;
+    function carregar() {
+      supabase.from("utilizadores").select("*").eq("casa_codigo", casaCodigo).then(({ data }) => setMembros(data || []));
+    }
+    carregar();
+    const channel = supabase.channel(`membros-${casaCodigo}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "utilizadores", filter: `casa_codigo=eq.${casaCodigo}` }, carregar)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [casaCodigo]);
 
   const contrib = useMemo(() => {
@@ -548,6 +559,9 @@ function Transacoes({ txs, onDelete }) {
 function Orcamentos({ monthTxs, budgets, onSave }) {
   const getLimit = cat => { const b=budgets.find(b=>b.categoria===cat); return b?parseFloat(b.limite):0; };
   const [locals, setLocals] = useState({});
+  // Se outra pessoa mudar um orçamento, esquece o valor que estava a ser editado
+  // localmente para o input voltar a refletir o que está guardado.
+  useEffect(() => { setLocals({}); }, [budgets]);
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
       <p style={{ margin:"0 0 8px", color:C.muted, fontSize:13 }}>Define limites mensais por categoria.</p>
