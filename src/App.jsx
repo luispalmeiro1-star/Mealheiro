@@ -218,12 +218,27 @@ export default function App() {
 
   useEffect(() => { if (user) loadAll(true); }, [casaCodigo]);
 
-  // Save last_visit when user leaves the app
+  // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
-    function handleHide() { if (document.hidden) localStorage.setItem("ml_last_visit", new Date().toISOString()); }
+    if (!casaCodigo) return;
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos"];
+    const channel = supabase.channel(`casa-${casaCodigo}`);
+    tabelas.forEach(tabela => {
+      channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
+    });
+    channel.subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [casaCodigo]);
+
+  // Save last_visit when user leaves the app, e atualiza dados quando volta a ficar visível
+  useEffect(() => {
+    function handleHide() {
+      if (document.hidden) { localStorage.setItem("ml_last_visit", new Date().toISOString()); }
+      else if (casaCodigo) { loadAll(false); }
+    }
     document.addEventListener("visibilitychange", handleHide);
     return () => document.removeEventListener("visibilitychange", handleHide);
-  }, []);
+  }, [casaCodigo]);
 
   async function sair() {
     await supabase.auth.signOut();
