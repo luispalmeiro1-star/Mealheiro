@@ -387,7 +387,7 @@ export default function App() {
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
-        {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} />}
+        {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} onAlerta={msg=>setAvisos(p=>[msg,...p])} />}
         {tab==="Prendas" && <Prendas desejos={desejos} setDesejos={setDesejos} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Relatórios" && <Relatorios txs={txs} now={now} />}
       </div>
@@ -898,7 +898,7 @@ const PRODUTOS_BEBE = [
   { nome: "Paracetamol bebé", unidade: "unid" },
 ];
 
-function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
+function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username, onAlerta }) {
   const [editando, setEditando] = useState(null); // id do produto a editar
   const [showAdicionar, setShowAdicionar] = useState(false);
   const [novoProduto, setNovoProduto] = useState("");
@@ -942,6 +942,15 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
       if (novaQtd <= item.minimo && item.minimo > 0 && !listaAtiva.includes(item.produto)) {
         const { data } = await supabase.from("lista_compras").insert({ casa_codigo: casaCodigo, produto: item.produto, quantidade: null, adicionado_por: username }).select();
         if (data && data[0]) setLista(l => [...l, data[0]]);
+        const msg = novaQtd <= 0
+          ? `${item.produto} acabou! Adicionado à lista de compras.`
+          : `${item.produto} está a acabar (${novaQtd} ${item.unidade}) — adicionado à lista de compras.`;
+        onAlerta?.(msg);
+        fetch("https://ptuqljedrqsywzmersxl.supabase.co/functions/v1/notificar-stock-baixo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-app-secret": "mealheiro-stock-2026" },
+          body: JSON.stringify({ casa_codigo: casaCodigo, produto: item.produto, quantidade: novaQtd, unidade: item.unidade, quem: username }),
+        }).catch(()=>{});
       }
       // Remove from lista if above minimum
       if (novaQtd > item.minimo && listaAtiva.includes(item.produto)) {
@@ -954,10 +963,23 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
   }
 
   async function atualizarMinimo(id, minimo) {
-    const { error } = await supabase.from("stock_bebe").update({ minimo: parseInt(minimo) || 0 }).eq("id", id);
+    const novoMinimo = parseInt(minimo) || 0;
+    const { error } = await supabase.from("stock_bebe").update({ minimo: novoMinimo }).eq("id", id);
     if (error) { alert("Erro ao atualizar mínimo: " + error.message); return; }
-    setStock(p => p.map(s => s.id === id ? { ...s, minimo: parseInt(minimo) || 0 } : s));
+    setStock(p => p.map(s => s.id === id ? { ...s, minimo: novoMinimo } : s));
     setEditando(null);
+
+    const item = stock.find(s => s.id === id);
+    if (item && novoMinimo > 0 && item.quantidade <= novoMinimo && !listaAtiva.includes(item.produto)) {
+      const { data } = await supabase.from("lista_compras").insert({ casa_codigo: casaCodigo, produto: item.produto, quantidade: null, adicionado_por: username }).select();
+      if (data && data[0]) setLista(l => [...l, data[0]]);
+      onAlerta?.(`${item.produto} está abaixo do mínimo (${item.quantidade} ${item.unidade}) — adicionado à lista de compras.`);
+      fetch("https://ptuqljedrqsywzmersxl.supabase.co/functions/v1/notificar-stock-baixo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-app-secret": "mealheiro-stock-2026" },
+        body: JSON.stringify({ casa_codigo: casaCodigo, produto: item.produto, quantidade: item.quantidade, unidade: item.unidade, quem: username }),
+      }).catch(()=>{});
+    }
   }
 
   async function removerProduto(id) {
