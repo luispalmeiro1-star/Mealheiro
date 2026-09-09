@@ -174,7 +174,7 @@ function EcraLogin() {
   );
 }
 
-const TABS = ["Resumo", "Transações", "Orçamentos", "Metas", "Compras", "Bebé", "Relatórios"];
+const TABS = ["Resumo", "Transações", "Orçamentos", "Metas", "Compras", "Bebé", "Prendas", "Relatórios"];
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
@@ -186,6 +186,7 @@ export default function App() {
   const [goals, setGoals] = useState([]);
   const [lista, setLista] = useState([]); // [{produto, quantidade}]
   const [stock, setStock] = useState([]);
+  const [desejos, setDesejos] = useState([]);
   const [customProds, setCustomProds] = useState({}); // { categoria: [produtos] }
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -222,15 +223,16 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("lista_compras").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("stock_bebe").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("custom_produtos").select("*").eq("casa_codigo", casaCodigo),
+      supabase.from("desejos").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -250,7 +252,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d);
     setLoading(false); setSyncing(false);
   }
 
@@ -259,7 +261,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -280,7 +282,7 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({});
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]);
   }
 
   const now = new Date();
@@ -386,6 +388,7 @@ export default function App() {
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
         {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} />}
+        {tab==="Prendas" && <Prendas desejos={desejos} setDesejos={setDesejos} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Relatórios" && <Relatorios txs={txs} now={now} />}
       </div>
     </div>
@@ -1044,6 +1047,140 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username }) {
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+// ── Prendas / Lista de desejos ──────────────────────────────────────────────
+const OCASIOES_SUGERIDAS = ["🎄 Natal", "🎂 Aniversário", "🎁 Outro"];
+
+function Prendas({ desejos, setDesejos, casaCodigo, username }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [f, setF] = useState({ ocasiao: OCASIOES_SUGERIDAS[0], titulo: "", paraQuem: "", link: "", preco: "" });
+  const [saving, setSaving] = useState(false);
+  const [mostrarComprados, setMostrarComprados] = useState(false);
+
+  async function addDesejo() {
+    if (!f.titulo.trim()) return;
+    setSaving(true);
+    const { data, error } = await supabase.from("desejos").insert({
+      casa_codigo: casaCodigo,
+      ocasiao: f.ocasiao,
+      titulo: f.titulo.trim(),
+      para_quem: f.paraQuem.trim() || null,
+      link: f.link.trim() || null,
+      preco: f.preco ? parseFloat(f.preco) : null,
+      adicionado_por: username,
+    }).select();
+    if (error) { alert("Erro ao adicionar: " + error.message); setSaving(false); return; }
+    if (data && data[0]) setDesejos(p => [data[0], ...p]);
+    setF({ ocasiao: f.ocasiao, titulo: "", paraQuem: "", link: "", preco: "" });
+    setShowAdd(false);
+    setSaving(false);
+  }
+
+  async function toggleComprado(item) {
+    const novoValor = !item.comprado;
+    const { error } = await supabase.from("desejos").update({ comprado: novoValor, comprado_por: novoValor ? username : null }).eq("id", item.id);
+    if (error) { alert("Erro: " + error.message); return; }
+    setDesejos(p => p.map(d => d.id === item.id ? { ...d, comprado: novoValor, comprado_por: novoValor ? username : null } : d));
+  }
+
+  async function remover(id) {
+    if (!window.confirm("Remover esta ideia da lista?")) return;
+    const { error } = await supabase.from("desejos").delete().eq("id", id);
+    if (error) { alert("Erro ao remover: " + error.message); return; }
+    setDesejos(p => p.filter(d => d.id !== id));
+  }
+
+  const porOcasiao = useMemo(() => {
+    const m = {};
+    desejos.filter(d => mostrarComprados || !d.comprado).forEach(d => { m[d.ocasiao] = [...(m[d.ocasiao] || []), d]; });
+    return m;
+  }, [desejos, mostrarComprados]);
+
+  const totalPendentes = desejos.filter(d => !d.comprado).length;
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>🎁 Prendas & Desejos</h2>
+          <p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>{totalPendentes} ideia{totalPendentes!==1?"s":""} por comprar</p>
+        </div>
+        <button onClick={()=>setShowAdd(s=>!s)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Ideia</button>
+      </div>
+
+      {showAdd && (
+        <Card style={{ marginBottom:14 }}>
+          <h4 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>Nova ideia de prenda</h4>
+          <div style={{ marginBottom:10 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Ocasião</label>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {OCASIOES_SUGERIDAS.map(o => (
+                <button key={o} onClick={()=>setF(p=>({...p,ocasiao:o}))} style={{ padding:"6px 12px", borderRadius:99, border:`1.5px solid ${f.ocasiao===o?C.text:C.border}`, background:f.ocasiao===o?C.text:"none", color:f.ocasiao===o?"#fff":C.text, cursor:"pointer", fontSize:12, fontWeight:600 }}>{o}</button>
+              ))}
+              <input value={OCASIOES_SUGERIDAS.includes(f.ocasiao)?"":f.ocasiao} onChange={e=>setF(p=>({...p,ocasiao:e.target.value}))} placeholder="Outra ocasião…" style={{ padding:"6px 12px", borderRadius:99, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, outline:"none", minWidth:110 }} />
+            </div>
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>O quê</label>
+            <input value={f.titulo} onChange={e=>setF(p=>({...p,titulo:e.target.value}))} placeholder="Ex: Livro de receitas" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          </div>
+          <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+            <div style={{ flex:1 }}>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Para quem</label>
+              <input value={f.paraQuem} onChange={e=>setF(p=>({...p,paraQuem:e.target.value}))} placeholder="Ex: Ines" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
+            </div>
+            <div style={{ width:100 }}>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Preço (€)</label>
+              <input type="number" value={f.preco} onChange={e=>setF(p=>({...p,preco:e.target.value}))} placeholder="0" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
+            </div>
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Link (opcional)</label>
+            <input value={f.link} onChange={e=>setF(p=>({...p,link:e.target.value}))} placeholder="https://…" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>setShowAdd(false)} style={{ flex:1, padding:"9px 0", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer" }}>Cancelar</button>
+            <button onClick={addDesejo} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+          </div>
+        </Card>
+      )}
+
+      {desejos.length === 0 && !showAdd && (
+        <Card><p style={{ color:C.muted, textAlign:"center", padding:"20px 0", fontSize:13 }}>Ainda não há nenhuma ideia. Adiciona a primeira!</p></Card>
+      )}
+
+      {Object.entries(porOcasiao).map(([ocasiao, itens]) => (
+        <div key={ocasiao} style={{ marginBottom:18 }}>
+          <p style={{ margin:"0 0 8px", fontSize:13, fontWeight:700, color:C.muted }}>{ocasiao}</p>
+          {itens.map(item => (
+            <Card key={item.id} style={{ marginBottom:8, padding:"12px 16px", opacity:item.comprado?0.55:1 }}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+                <div onClick={()=>toggleComprado(item)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${item.comprado?C.income:C.border}`, background:item.comprado?C.income:C.bg, flexShrink:0, cursor:"pointer", marginTop:2, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:13 }}>{item.comprado?"✓":""}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ margin:0, fontSize:14, fontWeight:600, textDecoration:item.comprado?"line-through":"none" }}>{item.titulo}</p>
+                  <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>
+                    {item.para_quem && <>Para <strong>{item.para_quem}</strong> · </>}
+                    {item.preco!=null && <>{fmt(item.preco)} · </>}
+                    {item.link && <a href={item.link} target="_blank" rel="noreferrer" style={{ color:C.accent }}>ver link</a>}
+                    {!item.link && <span>adicionado por {item.adicionado_por}</span>}
+                  </p>
+                  {item.comprado && <p style={{ margin:"2px 0 0", fontSize:11, color:C.income }}>✓ Comprado por {item.comprado_por}</p>}
+                </div>
+                <button onClick={()=>remover(item.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12, flexShrink:0 }}>✕</button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ))}
+
+      {desejos.some(d=>d.comprado) && (
+        <button onClick={()=>setMostrarComprados(s=>!s)} style={{ width:"100%", padding:"10px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:13, fontWeight:600 }}>
+          {mostrarComprados ? "Esconder já comprados" : `Mostrar já comprados (${desejos.filter(d=>d.comprado).length})`}
+        </button>
+      )}
     </div>
   );
 }
