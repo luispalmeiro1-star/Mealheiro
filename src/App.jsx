@@ -41,8 +41,10 @@ const CATEGORIAS = {
 };
 const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const CAT_COLORS = ["#F59E0B","#F43F5E","#C084FC","#38BDF8","#34D399","#FB923C","#818CF8","#A78BFA"];
-const TEMA_CLARO = { bg:"#F7F5F2", surface:"#FFFFFF", border:"#E8E3DC", text:"#1C1917", muted:"#78716C", faint:"#EDE8E3", income:"#22C55E", expense:"#F43F5E", accent:"#F59E0B" };
-const TEMA_ESCURO = { bg:"#16140F", surface:"#211E18", border:"#34302A", text:"#F3EFE8", muted:"#A69C8D", faint:"#2B2721", income:"#34D399", expense:"#FB7185", accent:"#FBBF24" };
+// primary/onPrimary são para botões de ação principal — cor fixa própria (não
+// segue "text") para nunca ficarem claro-sobre-claro quando se muda de tema.
+const TEMA_CLARO = { bg:"#F7F5F2", surface:"#FFFFFF", border:"#E8E3DC", text:"#1C1917", muted:"#78716C", faint:"#EDE8E3", income:"#22C55E", expense:"#F43F5E", accent:"#F59E0B", primary:"#1C1917", onPrimary:"#FFFFFF" };
+const TEMA_ESCURO = { bg:"#16140F", surface:"#211E18", border:"#34302A", text:"#F3EFE8", muted:"#A69C8D", faint:"#2B2721", income:"#34D399", expense:"#FB7185", accent:"#FBBF24", primary:"#F3EFE8", onPrimary:"#16140F" };
 // C é o mesmo objeto sempre — mudar de tema só troca os valores lá dentro, sem
 // termos de passar a cor por props a cada componente que a usa.
 const C = { ...TEMA_CLARO };
@@ -122,7 +124,7 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
   }
 
   const inputStyle = { width:"100%", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:15, outline:"none", boxSizing:"border-box", marginBottom:12 };
-  const btnPrimary = { width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:700, fontSize:15, opacity:loading?0.7:1, marginBottom:8 };
+  const btnPrimary = { width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:15, opacity:loading?0.7:1, marginBottom:8 };
   const btnSecondary = { width:"100%", padding:"13px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600, fontSize:15 };
 
   return (
@@ -374,10 +376,10 @@ export default function App() {
             </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               <button onClick={()=>loadAll(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center" }}>{syncing?<Spinner />:<span style={{ fontSize:14, color:C.muted }}>↻</span>}</button>
-              <button onClick={async()=>{ const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } }} style={{ background:notifOn?C.text:"none", color:notifOn?"#fff":C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14 }} title="Ativar lembretes diários">{notifOn?"🔔":"🔕"}</button>
+              <button onClick={async()=>{ const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } }} style={{ background:notifOn?C.primary:"none", color:notifOn?C.onPrimary:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14 }} title="Ativar lembretes diários">{notifOn?"🔔":"🔕"}</button>
               <button onClick={alternarTema} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14, color:C.muted }} title="Alternar modo escuro">{temaEscuro?"☀️":"🌙"}</button>
               <button onClick={sair} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:12, color:C.muted }}>Sair</button>
-              <button onClick={()=>setShowForm(true)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Adicionar</button>
+              <button onClick={()=>setShowForm(true)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Adicionar</button>
             </div>
           </div>
           <div style={{ display:"flex", overflowX:"auto" }}>
@@ -426,7 +428,7 @@ function TransacaoModal({ username, onClose, onSave }) {
         <p style={{ margin:"0 0 16px", fontSize:12, color:C.muted }}>A registar como <strong>{username}</strong></p>
         <div style={{ display:"flex", gap:8, marginBottom:16 }}>
           {[["despesa","🔴 Despesa"],["receita","🟢 Receita"]].map(([val,label])=>(
-            <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.text:C.border}`, background:f.tipo===val?C.text:"none", color:f.tipo===val?"#fff":C.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>{label}</button>
+            <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>{label}</button>
           ))}
         </div>
         {[{l:"Valor (€)",k:"valor",t:"number",ph:"0,00"},{l:"Descrição",k:"descricao",t:"text",ph:"Ex: Supermercado"},{l:"Data",k:"data",t:"date"}].map(({l,k,t,ph})=>(
@@ -443,7 +445,7 @@ function TransacaoModal({ username, onClose, onSave }) {
         </div>
         <div style={{ display:"flex", gap:8 }}>
           <button onClick={onClose} style={{ flex:1, padding:"11px 0", borderRadius:10, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontWeight:600 }}>Cancelar</button>
-          <button onClick={save} disabled={saving} style={{ flex:2, padding:"11px 0", borderRadius:10, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:700, fontSize:14, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+          <button onClick={save} disabled={saving} style={{ flex:2, padding:"11px 0", borderRadius:10, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:14, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
         </div>
       </div>
     </div>
@@ -593,7 +595,7 @@ function Transacoes({ txs, onDelete }) {
       <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar…" style={{ flex:1, minWidth:140, padding:"8px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
         {["todos","receita","despesa"].map(f=>(
-          <button key={f} onClick={()=>setFiltro(f)} style={{ padding:"7px 12px", borderRadius:9, border:`1.5px solid ${filtro===f?C.text:C.border}`, background:filtro===f?C.text:"none", color:filtro===f?"#fff":C.muted, cursor:"pointer", fontSize:12, fontWeight:600 }}>{f==="todos"?"Todos":f==="receita"?"Receitas":"Despesas"}</button>
+          <button key={f} onClick={()=>setFiltro(f)} style={{ padding:"7px 12px", borderRadius:9, border:`1.5px solid ${filtro===f?C.primary:C.border}`, background:filtro===f?C.primary:"none", color:filtro===f?C.onPrimary:C.muted, cursor:"pointer", fontSize:12, fontWeight:600 }}>{f==="todos"?"Todos":f==="receita"?"Receitas":"Despesas"}</button>
         ))}
       </div>
       {lista.length===0
@@ -660,7 +662,7 @@ function Metas({ goals, onAdd, onUpdate, onDelete }) {
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <p style={{ margin:0, color:C.muted, fontSize:13 }}>Metas de poupança da família.</p>
-        <button onClick={()=>setShowAdd(s=>!s)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Nova Meta</button>
+        <button onClick={()=>setShowAdd(s=>!s)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Nova Meta</button>
       </div>
       {showAdd && (
         <Card style={{ marginBottom:16 }}>
@@ -673,7 +675,7 @@ function Metas({ goals, onAdd, onUpdate, onDelete }) {
           ))}
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={()=>setShowAdd(false)} style={{ flex:1, padding:"9px 0", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer" }}>Cancelar</button>
-            <button onClick={addGoal} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+            <button onClick={addGoal} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
           </div>
         </Card>
       )}
@@ -692,7 +694,7 @@ function Metas({ goals, onAdd, onUpdate, onDelete }) {
             {done?<p style={{ margin:"10px 0 0", fontSize:13, color:C.income, fontWeight:700 }}>🎉 Meta atingida!</p>:(
               <div style={{ display:"flex", gap:8, marginTop:12 }}>
                 <input type="number" placeholder="Adicionar €" value={deposits[goal.id]||""} onChange={e=>setDeposits(d=>({...d,[goal.id]:e.target.value}))} style={{ flex:1, padding:"8px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
-                <button onClick={()=>deposit(goal)} style={{ padding:"8px 16px", borderRadius:9, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:600, fontSize:13 }}>+ Poupar</button>
+                <button onClick={()=>deposit(goal)} style={{ padding:"8px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:600, fontSize:13 }}>+ Poupar</button>
                 <button onClick={()=>onDelete(goal.id)} style={{ padding:"8px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:12 }}>✕</button>
               </div>
             )}
@@ -804,7 +806,7 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
         <div><h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>O que está a faltar?</h2><p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>{lista.length} produto{lista.length!==1?"s":""} selecionado{lista.length!==1?"s":""}</p></div>
-        {lista.length>0&&<button onClick={()=>setView("ir_compras")} style={{ background:C.text, color:"#fff", border:"none", borderRadius:10, padding:"10px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>🛒 Ir às compras</button>}
+        {lista.length>0&&<button onClick={()=>setView("ir_compras")} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:10, padding:"10px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>🛒 Ir às compras</button>}
       </div>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Pesquisar produto…" style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:`1.5px solid ${C.border}`, background:C.surface, color:C.text, fontSize:14, marginBottom:14, outline:"none" }} />
       {Object.entries(produtosFiltrados).map(([cat,prods])=>{
@@ -816,7 +818,7 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
               <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                 <span style={{ fontSize:16 }}>{cat.split(" ")[0]}</span>
                 <span style={{ fontSize:14, fontWeight:700 }}>{cat.substring(cat.indexOf(" ")+1)}</span>
-                {selecionados>0&&<span style={{ background:C.text, color:"#fff", borderRadius:99, padding:"1px 8px", fontSize:11, fontWeight:700 }}>{selecionados}</span>}
+                {selecionados>0&&<span style={{ background:C.primary, color:C.onPrimary, borderRadius:99, padding:"1px 8px", fontSize:11, fontWeight:700 }}>{selecionados}</span>}
               </div>
               {!search&&<span style={{ color:C.muted, fontSize:16 }}>{aberta?"▲":"▼"}</span>}
             </div>
@@ -829,8 +831,8 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
                     return (
                       <div key={p} style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
                         <div style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
-                          <button onClick={()=>toggle(p)} style={{ padding:"7px 13px", borderRadius:99, border:`1.5px solid ${sel?C.text:C.border}`, background:sel?C.text:C.bg, color:sel?"#fff":C.text, cursor:"pointer", fontSize:13, fontWeight:sel?600:400, paddingRight:isCustom?28:13 }}>{sel?"✓ ":""}{p}</button>
-                          {isCustom&&<button onClick={e=>{e.stopPropagation();removerCustom(cat,p);}} style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:sel?"#ffffff88":C.muted, fontSize:11, padding:0 }}>✕</button>}
+                          <button onClick={()=>toggle(p)} style={{ padding:"7px 13px", borderRadius:99, border:`1.5px solid ${sel?C.primary:C.border}`, background:sel?C.primary:C.bg, color:sel?C.onPrimary:C.text, cursor:"pointer", fontSize:13, fontWeight:sel?600:400, paddingRight:isCustom?28:13 }}>{sel?"✓ ":""}{p}</button>
+                          {isCustom&&<button onClick={e=>{e.stopPropagation();removerCustom(cat,p);}} style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:sel?C.onPrimary+"88":C.muted, fontSize:11, padding:0 }}>✕</button>}
                         </div>
                         {sel&&<input type="text" placeholder="qtd" defaultValue={qtdMap[p]||""} onBlur={e=>atualizarQtd(p,e.target.value)} style={{ width:52, padding:"5px 7px", borderRadius:99, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, outline:"none", textAlign:"center" }} />}
                       </div>
@@ -839,7 +841,7 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
                   {addingTo===cat?(
                     <div style={{ display:"flex", gap:6, alignItems:"center", width:"100%", marginTop:4 }}>
                       <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")adicionarProduto(cat);if(e.key==="Escape"){setAddingTo(null);setNovoNome("");}}} placeholder="Nome do produto…" style={{ flex:1, padding:"7px 11px", borderRadius:99, border:`1.5px solid ${C.text}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
-                      <button onClick={()=>adicionarProduto(cat)} style={{ padding:"7px 14px", borderRadius:99, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Adicionar</button>
+                      <button onClick={()=>adicionarProduto(cat)} style={{ padding:"7px 14px", borderRadius:99, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontSize:13, fontWeight:700 }}>Adicionar</button>
                       <button onClick={()=>{setAddingTo(null);setNovoNome("");}} style={{ padding:"7px 10px", borderRadius:99, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:13 }}>✕</button>
                     </div>
                   ):<button onClick={()=>{setAddingTo(cat);setNovoNome("");}} style={{ padding:"7px 13px", borderRadius:99, border:`1.5px dashed ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:13 }}>+ produto</button>}
@@ -1017,7 +1019,7 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username, onA
           <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>👶 Stock do Bebé</h2>
           {emFalta.length > 0 && <p style={{ margin:"4px 0 0", fontSize:12, color:C.expense, fontWeight:600 }}>⚠ {emFalta.length} produto{emFalta.length>1?"s":""} a acabar — adicionado{emFalta.length>1?"s":""} à lista de compras</p>}
         </div>
-        <button onClick={()=>setShowAdicionar(s=>!s)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Produto</button>
+        <button onClick={()=>setShowAdicionar(s=>!s)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Produto</button>
       </div>
 
       {/* Adicionar produto personalizado */}
@@ -1030,7 +1032,7 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username, onA
           </div>
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={()=>setShowAdicionar(false)} style={{ flex:1, padding:"8px 0", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer" }}>Cancelar</button>
-            <button onClick={()=>adicionarProduto(novoProduto, novaUnidade)} disabled={saving} style={{ flex:2, padding:"8px 0", borderRadius:9, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:700 }}>Adicionar</button>
+            <button onClick={()=>adicionarProduto(novoProduto, novaUnidade)} disabled={saving} style={{ flex:2, padding:"8px 0", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700 }}>Adicionar</button>
           </div>
           {/* Produtos sugeridos não adicionados */}
           <div style={{ marginTop:14, borderTop:`1px solid ${C.faint}`, paddingTop:12 }}>
@@ -1149,7 +1151,7 @@ function Prendas({ desejos, setDesejos, casaCodigo, username }) {
           <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>🎁 Prendas & Desejos</h2>
           <p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>{totalPendentes} ideia{totalPendentes!==1?"s":""} por comprar</p>
         </div>
-        <button onClick={()=>setShowAdd(s=>!s)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Ideia</button>
+        <button onClick={()=>setShowAdd(s=>!s)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Ideia</button>
       </div>
 
       {showAdd && (
@@ -1159,7 +1161,7 @@ function Prendas({ desejos, setDesejos, casaCodigo, username }) {
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Ocasião</label>
             <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
               {OCASIOES_SUGERIDAS.map(o => (
-                <button key={o} onClick={()=>setF(p=>({...p,ocasiao:o}))} style={{ padding:"6px 12px", borderRadius:99, border:`1.5px solid ${f.ocasiao===o?C.text:C.border}`, background:f.ocasiao===o?C.text:"none", color:f.ocasiao===o?"#fff":C.text, cursor:"pointer", fontSize:12, fontWeight:600 }}>{o}</button>
+                <button key={o} onClick={()=>setF(p=>({...p,ocasiao:o}))} style={{ padding:"6px 12px", borderRadius:99, border:`1.5px solid ${f.ocasiao===o?C.primary:C.border}`, background:f.ocasiao===o?C.primary:"none", color:f.ocasiao===o?C.onPrimary:C.text, cursor:"pointer", fontSize:12, fontWeight:600 }}>{o}</button>
               ))}
               <input value={OCASIOES_SUGERIDAS.includes(f.ocasiao)?"":f.ocasiao} onChange={e=>setF(p=>({...p,ocasiao:e.target.value}))} placeholder="Outra ocasião…" style={{ padding:"6px 12px", borderRadius:99, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, outline:"none", minWidth:110 }} />
             </div>
@@ -1184,7 +1186,7 @@ function Prendas({ desejos, setDesejos, casaCodigo, username }) {
           </div>
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={()=>setShowAdd(false)} style={{ flex:1, padding:"9px 0", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer" }}>Cancelar</button>
-            <button onClick={addDesejo} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.text, color:"#fff", cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+            <button onClick={addDesejo} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
           </div>
         </Card>
       )}
