@@ -41,7 +41,16 @@ const CATEGORIAS = {
 };
 const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const CAT_COLORS = ["#F59E0B","#F43F5E","#C084FC","#38BDF8","#34D399","#FB923C","#818CF8","#A78BFA"];
-const C = { bg:"#F7F5F2", surface:"#FFFFFF", border:"#E8E3DC", text:"#1C1917", muted:"#78716C", faint:"#EDE8E3", income:"#22C55E", expense:"#F43F5E", accent:"#F59E0B" };
+const TEMA_CLARO = { bg:"#F7F5F2", surface:"#FFFFFF", border:"#E8E3DC", text:"#1C1917", muted:"#78716C", faint:"#EDE8E3", income:"#22C55E", expense:"#F43F5E", accent:"#F59E0B" };
+const TEMA_ESCURO = { bg:"#16140F", surface:"#211E18", border:"#34302A", text:"#F3EFE8", muted:"#A69C8D", faint:"#2B2721", income:"#34D399", expense:"#FB7185", accent:"#FBBF24" };
+// C é o mesmo objeto sempre — mudar de tema só troca os valores lá dentro, sem
+// termos de passar a cor por props a cada componente que a usa.
+const C = { ...TEMA_CLARO };
+function aplicarTema(escuro) { Object.assign(C, escuro ? TEMA_ESCURO : TEMA_CLARO); }
+function temaGuardadoEscuro() {
+  try { return localStorage.getItem("ml_tema") === "escuro"; } catch { return false; }
+}
+aplicarTema(temaGuardadoEscuro());
 
 const LISTA_PRODUTOS = {
   "🥛 Lacticínios": ["Leite meio-gordo","Leite magro","Leite gordo","Leite sem lactose","Manteiga","Margarina","Natas","Iogurte natural","Iogurte de frutas","Iogurte grego","Queijo flamengo","Queijo da Serra","Queijo fresco","Cheddar","Requeijão","Mozzarella","Queijo parmesão","Ovos"],
@@ -75,7 +84,7 @@ function Spinner() { return <div style={{ width:18, height:18, border:`2px solid
 // Login/registo passam por funções RPC no Supabase (registar_utilizador, resolver_email):
 // a password nunca é guardada nem comparada em texto simples — quem trata disso é o
 // Supabase Auth. Depois de autenticado, o resto da app segue a sessão via onAuthStateChange.
-function EcraLogin() {
+function EcraLogin({ temaEscuro, onAlternarTema }) {
   const [passo, setPasso] = useState("inicio"); // inicio | login | registo | juntar
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -117,8 +126,9 @@ function EcraLogin() {
   const btnSecondary = { width:"100%", padding:"13px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600, fontSize:15 };
 
   return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif", padding:24 }}>
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif", padding:24, position:"relative" }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <button onClick={onAlternarTema} style={{ position:"absolute", top:20, right:20, background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14, color:C.muted }} title="Alternar modo escuro">{temaEscuro?"☀️":"🌙"}</button>
       <div style={{ width:"100%", maxWidth:360 }}>
         <div style={{ textAlign:"center", marginBottom:36 }}>
           <div style={{ fontSize:52, marginBottom:10 }}>🐷</div>
@@ -193,6 +203,14 @@ export default function App() {
   const [showForm, setShowForm] = useState(false);
   const [avisos, setAvisos] = useState([]);
   const [notifOn, setNotifOn] = useState(false);
+  const [temaEscuro, setTemaEscuro] = useState(temaGuardadoEscuro());
+
+  function alternarTema() {
+    const novo = !temaEscuro;
+    aplicarTema(novo);
+    try { localStorage.setItem("ml_tema", novo ? "escuro" : "claro"); } catch {}
+    setTemaEscuro(novo);
+  }
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -330,7 +348,7 @@ export default function App() {
     </div>
   );
 
-  if (!user) return <EcraLogin />;
+  if (!user) return <EcraLogin temaEscuro={temaEscuro} onAlternarTema={alternarTema} />;
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, fontFamily:"system-ui" }}>
@@ -357,6 +375,7 @@ export default function App() {
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               <button onClick={()=>loadAll(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center" }}>{syncing?<Spinner />:<span style={{ fontSize:14, color:C.muted }}>↻</span>}</button>
               <button onClick={async()=>{ const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } }} style={{ background:notifOn?C.text:"none", color:notifOn?"#fff":C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14 }} title="Ativar lembretes diários">{notifOn?"🔔":"🔕"}</button>
+              <button onClick={alternarTema} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14, color:C.muted }} title="Alternar modo escuro">{temaEscuro?"☀️":"🌙"}</button>
               <button onClick={sair} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:12, color:C.muted }}>Sair</button>
               <button onClick={()=>setShowForm(true)} style={{ background:C.text, color:"#fff", border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Adicionar</button>
             </div>
