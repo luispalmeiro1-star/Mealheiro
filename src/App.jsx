@@ -186,7 +186,7 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
   );
 }
 
-const TABS = ["Resumo", "Transações", "Orçamentos", "Metas", "Compras", "Bebé", "Prendas", "Relatórios"];
+const TABS = ["Resumo", "Transações", "Fixas", "Orçamentos", "Metas", "Compras", "Bebé", "Prendas", "Relatórios"];
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
@@ -199,6 +199,8 @@ export default function App() {
   const [lista, setLista] = useState([]); // [{produto, quantidade}]
   const [stock, setStock] = useState([]);
   const [desejos, setDesejos] = useState([]);
+  const [fixas, setFixas] = useState([]);
+  const [editando, setEditando] = useState(null); // transação a editar, ou null
   const [customProds, setCustomProds] = useState({}); // { categoria: [produtos] }
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -243,7 +245,7 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr, dr] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr, fr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
@@ -251,8 +253,9 @@ export default function App() {
       supabase.from("stock_bebe").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("custom_produtos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("desejos").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
+      supabase.from("despesas_fixas").select("*").eq("casa_codigo", casaCodigo).order("dia_mes", { ascending: true }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -272,7 +275,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f);
     setLoading(false); setSyncing(false);
   }
 
@@ -281,7 +284,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -302,7 +305,7 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]);
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]);
   }
 
   const now = new Date();
@@ -321,6 +324,28 @@ export default function App() {
     const { error } = await supabase.from("transacoes").delete().eq("id", id);
     if (error) { alert("Erro ao remover transação: " + error.message); return; }
     setTxs(p=>p.filter(t=>t.id!==id));
+  }
+  async function updateTx(id, patch) {
+    const { error } = await supabase.from("transacoes").update(patch).eq("id", id);
+    if (error) { alert("Erro ao editar transação: " + error.message); return; }
+    setTxs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
+    setEditando(null);
+  }
+  async function addFixa(f) {
+    const { data, error } = await supabase.from("despesas_fixas").insert({...f, casa_codigo:casaCodigo, criado_por:user.username}).select();
+    if (error) { alert("Erro ao criar despesa fixa: " + error.message); return; }
+    if (data && data[0]) setFixas(p=>[...p,data[0]].sort((a,b)=>a.dia_mes-b.dia_mes));
+  }
+  async function toggleFixa(id, ativo) {
+    const { error } = await supabase.from("despesas_fixas").update({ativo}).eq("id", id);
+    if (error) { alert("Erro: " + error.message); return; }
+    setFixas(p=>p.map(f=>f.id===id?{...f,ativo}:f));
+  }
+  async function deleteFixa(id) {
+    if (!window.confirm("Remover esta despesa fixa? (as transações já lançadas mantêm-se)")) return;
+    const { error } = await supabase.from("despesas_fixas").delete().eq("id", id);
+    if (error) { alert("Erro ao remover: " + error.message); return; }
+    setFixas(p=>p.filter(f=>f.id!==id));
   }
   async function saveBudget(categoria, limite) {
     const { error } = await supabase.from("orcamentos").upsert({categoria, limite, casa_codigo:casaCodigo}, { onConflict: "casa_codigo,categoria" });
@@ -403,8 +428,10 @@ export default function App() {
       )}
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }}>
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
+        {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
         {tab==="Resumo" && <Resumo monthTxs={monthTxs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} />}
-        {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} />}
+        {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} />}
+        {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
@@ -416,16 +443,18 @@ export default function App() {
   );
 }
 
-function TransacaoModal({ username, onClose, onSave }) {
-  const [f, setF] = useState({ tipo:"despesa", valor:"", categoria:"Alimentação", descricao:"", data:today() });
+function TransacaoModal({ username, onClose, onSave, editing }) {
+  const [f, setF] = useState(editing
+    ? { tipo:editing.tipo, valor:String(editing.valor), categoria:editing.categoria, descricao:editing.descricao||"", data:editing.data }
+    : { tipo:"despesa", valor:"", categoria:"Alimentação", descricao:"", data:today() });
   const [saving, setSaving] = useState(false);
   const set = k => v => setF(p=>({...p,[k]:v}));
   async function save() { if (!f.valor||isNaN(parseFloat(f.valor))) return; setSaving(true); await onSave({tipo:f.tipo,valor:parseFloat(f.valor),categoria:f.categoria,descricao:f.descricao,data:f.data}); setSaving(false); }
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={onClose}>
       <div style={{ background:C.surface, borderRadius:20, padding:28, width:"100%", maxWidth:360, border:`1px solid ${C.border}` }} onClick={e=>e.stopPropagation()}>
-        <h3 style={{ margin:"0 0 4px", fontSize:17, fontWeight:800 }}>Nova Transação</h3>
-        <p style={{ margin:"0 0 16px", fontSize:12, color:C.muted }}>A registar como <strong>{username}</strong></p>
+        <h3 style={{ margin:"0 0 4px", fontSize:17, fontWeight:800 }}>{editing?"Editar Transação":"Nova Transação"}</h3>
+        <p style={{ margin:"0 0 16px", fontSize:12, color:C.muted }}>{editing?<>Registada por <strong>{editing.pessoa}</strong></>:<>A registar como <strong>{username}</strong></>}</p>
         <div style={{ display:"flex", gap:8, marginBottom:16 }}>
           {[["despesa","🔴 Despesa"],["receita","🟢 Receita"]].map(([val,label])=>(
             <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>{label}</button>
@@ -445,7 +474,7 @@ function TransacaoModal({ username, onClose, onSave }) {
         </div>
         <div style={{ display:"flex", gap:8 }}>
           <button onClick={onClose} style={{ flex:1, padding:"11px 0", borderRadius:10, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontWeight:600 }}>Cancelar</button>
-          <button onClick={save} disabled={saving} style={{ flex:2, padding:"11px 0", borderRadius:10, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:14, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+          <button onClick={save} disabled={saving} style={{ flex:2, padding:"11px 0", borderRadius:10, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:14, opacity:saving?0.7:1 }}>{saving?"A guardar…":editing?"Guardar alterações":"Guardar"}</button>
         </div>
       </div>
     </div>
@@ -586,7 +615,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
   );
 }
 
-function Transacoes({ txs, onDelete }) {
+function Transacoes({ txs, onDelete, onEdit }) {
   const [filtro, setFiltro] = useState("todos");
   const [search, setSearch] = useState("");
   const lista = txs.filter(t=>(filtro==="todos"||t.tipo===filtro)&&(!search||(t.descricao+t.categoria).toLowerCase().includes(search.toLowerCase())));
@@ -604,11 +633,12 @@ function Transacoes({ txs, onDelete }) {
           <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.faint}` }}>
             <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{t.tipo==="receita"?"💚":"🔴"}</div>
             <div style={{ flex:1, minWidth:0 }}>
-              <p style={{ margin:0, fontSize:14, fontWeight:500 }}>{t.descricao||t.categoria}</p>
+              <p style={{ margin:0, fontSize:14, fontWeight:500 }}>{t.descricao||t.categoria}{t.fixa_id&&<span title="Lançada automaticamente (despesa fixa)" style={{marginLeft:5}}>🔁</span>}</p>
               <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{t.categoria} · {t.data} · <strong>{t.pessoa||""}</strong></p>
             </div>
             <span style={{ fontWeight:800, fontSize:14, color:t.tipo==="receita"?C.income:C.expense, marginRight:8, flexShrink:0 }}>{t.tipo==="receita"?"+":"-"}{fmt(t.valor)}</span>
-            <button onClick={()=>onDelete(t.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12, flexShrink:0 }}>✕</button>
+            <button onClick={()=>onEdit(t)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12, flexShrink:0 }}>✎</button>
+            <button onClick={()=>onDelete(t.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12, flexShrink:0, marginLeft:4 }}>✕</button>
           </div>
         ))
       }
@@ -647,6 +677,90 @@ function Orcamentos({ monthTxs, budgets, onSave }) {
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+function DespesasFixas({ fixas, onAdd, onToggle, onDelete }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [f, setF] = useState({ tipo:"despesa", valor:"", categoria:"Habitação", descricao:"", diaMes:"1", pessoa:"" });
+  const [saving, setSaving] = useState(false);
+
+  async function guardar() {
+    if (!f.valor || isNaN(parseFloat(f.valor)) || !f.diaMes) return;
+    setSaving(true);
+    await onAdd({
+      tipo: f.tipo, valor: parseFloat(f.valor), categoria: f.categoria,
+      descricao: f.descricao || null, dia_mes: Math.min(28, Math.max(1, parseInt(f.diaMes) || 1)),
+      pessoa: f.pessoa.trim() || null,
+    });
+    setF({ tipo:"despesa", valor:"", categoria:"Habitação", descricao:"", diaMes:"1", pessoa:"" });
+    setShowAdd(false);
+    setSaving(false);
+  }
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <p style={{ margin:0, color:C.muted, fontSize:13 }}>Despesas e receitas que se repetem todo o mês — lançam-se sozinhas.</p>
+        <button onClick={()=>setShowAdd(s=>!s)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Nova</button>
+      </div>
+
+      {showAdd && (
+        <Card style={{ marginBottom:16 }}>
+          <h4 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Nova despesa/receita fixa</h4>
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            {[["despesa","🔴 Despesa"],["receita","🟢 Receita"]].map(([val,label])=>(
+              <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>{label}</button>
+            ))}
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Descrição</label>
+            <input value={f.descricao} onChange={e=>setF(p=>({...p,descricao:e.target.value}))} placeholder="Ex: Renda da casa" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          </div>
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            <div style={{ flex:1 }}>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Valor (€)</label>
+              <input type="number" value={f.valor} onChange={e=>setF(p=>({...p,valor:e.target.value}))} placeholder="0,00" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+            </div>
+            <div style={{ width:110 }}>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Dia do mês</label>
+              <input type="number" min="1" max="28" value={f.diaMes} onChange={e=>setF(p=>({...p,diaMes:e.target.value}))} style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+            </div>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Categoria</label>
+            <select value={f.categoria} onChange={e=>setF(p=>({...p,categoria:e.target.value}))} style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14 }}>
+              {CATEGORIAS[f.tipo].map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Pessoa (opcional)</label>
+            <input value={f.pessoa} onChange={e=>setF(p=>({...p,pessoa:e.target.value}))} placeholder="Ex: Luis" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>setShowAdd(false)} style={{ flex:1, padding:"9px 0", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer" }}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+          </div>
+        </Card>
+      )}
+
+      {fixas.length===0 && !showAdd && <p style={{ color:C.muted, textAlign:"center", padding:"30px 0", fontSize:13 }}>Nenhuma despesa fixa ainda.</p>}
+      {fixas.map(fx=>(
+        <Card key={fx.id} style={{ marginBottom:10, padding:"14px 18px", opacity:fx.ativo?1:0.5 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <p style={{ margin:0, fontSize:14, fontWeight:700 }}>{fx.descricao||fx.categoria}</p>
+              <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{fx.categoria} · dia {fx.dia_mes} · {fx.pessoa||"qualquer um"}{!fx.ativo&&" · pausada"}</p>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontWeight:800, fontSize:14, color:fx.tipo==="receita"?C.income:C.expense }}>{fx.tipo==="receita"?"+":"-"}{fmt(fx.valor)}</span>
+              <button onClick={()=>onToggle(fx.id,!fx.ativo)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12 }}>{fx.ativo?"Pausar":"Retomar"}</button>
+              <button onClick={()=>onDelete(fx.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12 }}>✕</button>
+            </div>
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }
