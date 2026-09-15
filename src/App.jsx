@@ -485,6 +485,17 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
   const saldo = receitas - despesas;
   const [membros, setMembros] = useState([]);
   const [showCodigo, setShowCodigo] = useState(false);
+  const [valoresVisiveis, setValoresVisiveis] = useState(() => {
+    try { return localStorage.getItem("ml_valores_visiveis") === "sim"; } catch { return false; }
+  });
+  function alternarValores() {
+    setValoresVisiveis(v => {
+      const novo = !v;
+      try { localStorage.setItem("ml_valores_visiveis", novo ? "sim" : "nao"); } catch {}
+      return novo;
+    });
+  }
+  const mostrar = v => valoresVisiveis ? fmt(v) : "•••••";
 
   useEffect(() => {
     if (!casaCodigo) return;
@@ -513,11 +524,16 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ display:"flex", justifyContent:"flex-end" }}>
+        <button onClick={alternarValores} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:C.muted, display:"flex", alignItems:"center", gap:5 }}>
+          {valoresVisiveis ? "🙈 Esconder valores" : "👁 Mostrar valores"}
+        </button>
+      </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
         {[{l:"Receitas",v:receitas,c:C.income,icon:"↑"},{l:"Despesas",v:despesas,c:C.expense,icon:"↓"},{l:"Saldo",v:saldo,c:saldo>=0?C.income:C.expense,icon:"="}].map(({l,v,c,icon})=>(
-          <Card key={l} style={{ padding:"14px 16px" }}>
+          <Card key={l} style={{ padding:"14px 16px", cursor:"pointer" }} onClick={alternarValores}>
             <p style={{ margin:"0 0 4px", fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>{icon} {l}</p>
-            <p style={{ margin:0, fontSize:18, fontWeight:800, color:c, letterSpacing:"-0.5px" }}>{fmt(v)}</p>
+            <p style={{ margin:0, fontSize:18, fontWeight:800, color:c, letterSpacing:"-0.5px" }}>{mostrar(v)}</p>
           </Card>
         ))}
       </div>
@@ -563,7 +579,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
                     <span style={{ fontSize:14, fontWeight:600 }}>{mb.username}</span>
                     {mb.username===username && <span style={{ fontSize:10, fontWeight:700, background:color+"22", color, borderRadius:6, padding:"1px 6px" }}>Tu</span>}
                   </div>
-                  <span style={{ fontSize:14, fontWeight:700, color }}>{fmt(v)}</span>
+                  <span style={{ fontSize:14, fontWeight:700, color }}>{mostrar(v)}</span>
                 </div>
                 <ProgressBar pct={pct} color={color} height={5} />
               </div>
