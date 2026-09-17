@@ -186,7 +186,7 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
   );
 }
 
-const TABS = ["Resumo", "Transações", "Fixas", "Orçamentos", "Metas", "Compras", "Bebé", "Prendas", "Relatórios"];
+const TABS = ["Resumo", "Transações", "Fixas", "Orçamentos", "Metas", "Compras", "Quinta", "Bebé", "Prendas", "Relatórios"];
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
@@ -200,6 +200,7 @@ export default function App() {
   const [stock, setStock] = useState([]);
   const [desejos, setDesejos] = useState([]);
   const [fixas, setFixas] = useState([]);
+  const [listaQuinta, setListaQuinta] = useState([]);
   const [editando, setEditando] = useState(null); // transação a editar, ou null
   const [customProds, setCustomProds] = useState({}); // { categoria: [produtos] }
   const [loading, setLoading] = useState(true);
@@ -245,7 +246,7 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr, dr, fr] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr, fr, qr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
@@ -254,8 +255,9 @@ export default function App() {
       supabase.from("custom_produtos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("desejos").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("despesas_fixas").select("*").eq("casa_codigo", casaCodigo).order("dia_mes", { ascending: true }),
+      supabase.from("produtos_quinta").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -275,7 +277,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q);
     setLoading(false); setSyncing(false);
   }
 
@@ -284,7 +286,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -305,7 +307,7 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]);
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]);
   }
 
   const now = new Date();
@@ -435,6 +437,7 @@ export default function App() {
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
+        {tab==="Quinta" && <ListaQuinta lista={listaQuinta} setLista={setListaQuinta} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} onAlerta={msg=>setAvisos(p=>[msg,...p])} />}
         {tab==="Prendas" && <Prendas desejos={desejos} setDesejos={setDesejos} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Relatórios" && <Relatorios txs={txs} now={now} />}
@@ -981,6 +984,73 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+// ── Lista da Quinta ─────────────────────────────────────────────────────────
+function ListaQuinta({ lista, setLista, casaCodigo, username }) {
+  const [nome, setNome] = useState("");
+  const [qtd, setQtd] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function adicionar() {
+    const n = nome.trim(); if (!n) return;
+    setSaving(true);
+    const { data, error } = await supabase.from("produtos_quinta").insert({
+      casa_codigo: casaCodigo, produto: n, quantidade: qtd.trim() || null, adicionado_por: username,
+    }).select();
+    if (error) { alert("Erro ao adicionar: " + error.message); setSaving(false); return; }
+    if (data && data[0]) setLista(l => [data[0], ...l]);
+    setNome(""); setQtd(""); setSaving(false);
+  }
+
+  async function jaFui(id) {
+    const { error } = await supabase.from("produtos_quinta").delete().eq("id", id);
+    if (error) { alert("Erro: " + error.message); return; }
+    setLista(l => l.filter(r => r.id !== id));
+  }
+
+  async function limpar() {
+    if (!window.confirm("Limpar toda a lista da quinta?")) return;
+    const { error } = await supabase.from("produtos_quinta").delete().eq("casa_codigo", casaCodigo);
+    if (error) { alert("Erro: " + error.message); return; }
+    setLista([]);
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom:16 }}>
+        <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>🌾 Ir à Quinta</h2>
+        <p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>{lista.length} produto{lista.length!==1?"s":""} para ir buscar</p>
+      </div>
+
+      <Card style={{ marginBottom:16 }}>
+        <div style={{ display:"flex", gap:8 }}>
+          <input value={nome} onChange={e=>setNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&adicionar()} placeholder="Ex: Ovos, Alface, Batatas…" style={{ flex:2, padding:"10px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          <input value={qtd} onChange={e=>setQtd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&adicionar()} placeholder="qtd (opcional)" style={{ flex:1, padding:"10px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          <button onClick={adicionar} disabled={saving} style={{ padding:"10px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:13, opacity:saving?0.7:1 }}>+</button>
+        </div>
+      </Card>
+
+      {lista.length===0
+        ? <Card><p style={{ color:C.muted, textAlign:"center", padding:"20px 0", fontSize:13 }}>Nada para ir buscar à quinta, por agora 🌱</p></Card>
+        : (
+          <Card>
+            {lista.map(item => (
+              <div key={item.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:`1px solid ${C.faint}` }}>
+                <div onClick={()=>jaFui(item.id)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${C.border}`, background:C.bg, flexShrink:0, cursor:"pointer" }} title="Já fui buscar" />
+                <div style={{ flex:1, minWidth:0 }} onClick={()=>jaFui(item.id)}>
+                  <p style={{ margin:0, fontSize:15, cursor:"pointer" }}>{item.produto}</p>
+                  <p style={{ margin:"1px 0 0", fontSize:11, color:C.muted }}>adicionado por {item.adicionado_por}</p>
+                </div>
+                {item.quantidade && <span style={{ fontSize:13, fontWeight:700, color:C.muted, background:C.faint, borderRadius:6, padding:"3px 10px", flexShrink:0 }}>{item.quantidade}</span>}
+              </div>
+            ))}
+          </Card>
+        )
+      }
+      {lista.length>0 && <button onClick={limpar} style={{ width:"100%", marginTop:12, padding:"12px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:14, fontWeight:600 }}>🗑 Limpar lista (já fui buscar tudo)</button>}
     </div>
   );
 }
