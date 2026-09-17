@@ -989,16 +989,28 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
 }
 
 // ── Lista da Quinta ─────────────────────────────────────────────────────────
+const PRODUTOS_QUINTA_SUGERIDOS = {
+  "🥬 Hortícolas": ["Alface","Tomate","Cebola","Batatas","Cenouras","Courgette","Pepino","Pimentos","Couve","Grelos","Nabiças","Feijão verde","Ervilhas","Abóbora","Alho","Espinafres","Beterraba","Rabanetes"],
+  "🍊 Frutas": ["Laranjas","Limões","Maçãs","Peras","Figos","Uvas","Ameixas","Dióspiros","Nêsperas","Romãs","Marmelos","Nozes","Amêndoas","Castanhas"],
+  "🥚 Ovos & Laticínios": ["Ovos caseiros","Queijo fresco","Requeijão","Leite de cabra"],
+  "🐓 Carne & Aves": ["Frango caseiro","Coelho","Peru"],
+  "🌿 Ervas & Temperos": ["Salsa","Coentros","Hortelã","Alecrim","Louro"],
+  "🍯 Outros": ["Mel","Azeite","Vinho caseiro","Compota caseira","Aguardente"],
+};
+
 function ListaQuinta({ lista, setLista, casaCodigo, username }) {
   const [nome, setNome] = useState("");
   const [qtd, setQtd] = useState("");
   const [saving, setSaving] = useState(false);
+  const [catAberta, setCatAberta] = useState(null);
 
-  async function adicionar() {
-    const n = nome.trim(); if (!n) return;
+  const listaAtiva = lista.map(r => r.produto);
+
+  async function adicionar(nomeProduto, quantidade) {
+    const n = (nomeProduto ?? nome).trim(); if (!n) return;
     setSaving(true);
     const { data, error } = await supabase.from("produtos_quinta").insert({
-      casa_codigo: casaCodigo, produto: n, quantidade: qtd.trim() || null, adicionado_por: username,
+      casa_codigo: casaCodigo, produto: n, quantidade: (quantidade ?? qtd).trim() || null, adicionado_por: username,
     }).select();
     if (error) { alert("Erro ao adicionar: " + error.message); setSaving(false); return; }
     if (data && data[0]) setLista(l => [data[0], ...l]);
@@ -1009,6 +1021,17 @@ function ListaQuinta({ lista, setLista, casaCodigo, username }) {
     const { error } = await supabase.from("produtos_quinta").delete().eq("id", id);
     if (error) { alert("Erro: " + error.message); return; }
     setLista(l => l.filter(r => r.id !== id));
+  }
+
+  async function removerPorNome(produto) {
+    const { error } = await supabase.from("produtos_quinta").delete().eq("casa_codigo", casaCodigo).eq("produto", produto);
+    if (error) { alert("Erro: " + error.message); return; }
+    setLista(l => l.filter(r => r.produto !== produto));
+  }
+
+  async function toggle(produto) {
+    if (listaAtiva.includes(produto)) removerPorNome(produto);
+    else adicionar(produto, "");
   }
 
   async function limpar() {
@@ -1027,12 +1050,43 @@ function ListaQuinta({ lista, setLista, casaCodigo, username }) {
 
       <Card style={{ marginBottom:16 }}>
         <div style={{ display:"flex", gap:8 }}>
-          <input value={nome} onChange={e=>setNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&adicionar()} placeholder="Ex: Ovos, Alface, Batatas…" style={{ flex:2, padding:"10px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          <input value={nome} onChange={e=>setNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&adicionar()} placeholder="Outro produto…" style={{ flex:2, padding:"10px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
           <input value={qtd} onChange={e=>setQtd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&adicionar()} placeholder="qtd (opcional)" style={{ flex:1, padding:"10px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
-          <button onClick={adicionar} disabled={saving} style={{ padding:"10px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:13, opacity:saving?0.7:1 }}>+</button>
+          <button onClick={()=>adicionar()} disabled={saving} style={{ padding:"10px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:13, opacity:saving?0.7:1 }}>+</button>
         </div>
       </Card>
 
+      <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Produtos típicos da quinta</p>
+      {Object.entries(PRODUTOS_QUINTA_SUGERIDOS).map(([cat, prods]) => {
+        const aberta = catAberta === cat;
+        const selecionados = prods.filter(p => listaAtiva.includes(p)).length;
+        return (
+          <Card key={cat} style={{ marginBottom:10, padding:"0" }}>
+            <div onClick={()=>setCatAberta(aberta?null:cat)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 18px", cursor:"pointer" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:16 }}>{cat.split(" ")[0]}</span>
+                <span style={{ fontSize:14, fontWeight:700 }}>{cat.substring(cat.indexOf(" ")+1)}</span>
+                {selecionados>0 && <span style={{ background:C.primary, color:C.onPrimary, borderRadius:99, padding:"1px 8px", fontSize:11, fontWeight:700 }}>{selecionados}</span>}
+              </div>
+              <span style={{ color:C.muted, fontSize:16 }}>{aberta?"▲":"▼"}</span>
+            </div>
+            {aberta && (
+              <div style={{ padding:"0 18px 14px", borderTop:`1px solid ${C.faint}` }}>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:8, paddingTop:12 }}>
+                  {prods.map(p => {
+                    const sel = listaAtiva.includes(p);
+                    return (
+                      <button key={p} onClick={()=>toggle(p)} style={{ padding:"7px 13px", borderRadius:99, border:`1.5px solid ${sel?C.primary:C.border}`, background:sel?C.primary:C.bg, color:sel?C.onPrimary:C.text, cursor:"pointer", fontSize:13, fontWeight:sel?600:400 }}>{sel?"✓ ":""}{p}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      <p style={{ margin:"16px 0 8px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>A tua lista</p>
       {lista.length===0
         ? <Card><p style={{ color:C.muted, textAlign:"center", padding:"20px 0", fontSize:13 }}>Nada para ir buscar à quinta, por agora 🌱</p></Card>
         : (
