@@ -81,6 +81,17 @@ const today = () => new Date().toISOString().slice(0, 10);
 function Card({ children, style }) { return <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:20, ...style }}>{children}</div>; }
 function ProgressBar({ pct, color, height=7 }) { return <div style={{ background:C.faint, borderRadius:99, height, overflow:"hidden" }}><div style={{ width:`${Math.min(pct,100)}%`, height, background:color, borderRadius:99, transition:"width 0.5s" }} /></div>; }
 function Spinner() { return <div style={{ width:18, height:18, border:`2px solid ${C.border}`, borderTop:`2px solid ${C.text}`, borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />; }
+// Ícone de seta para receita (para cima) / despesa (para baixo) — substitui os emojis 🔴/💚.
+function IconTx({ tipo, size=16, cor }) {
+  const c = cor || (tipo==="receita" ? C.income : C.expense);
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink:0 }}>
+      {tipo==="receita"
+        ? <path d="M12 19V6M12 6L6 12M12 6l6 6" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        : <path d="M12 5v13M12 18l-6-6M12 18l6-6" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
+  );
+}
 
 // ── Ecrã de Login ─────────────────────────────────────────────────────────────
 // Login/registo passam por funções RPC no Supabase (registar_utilizador, resolver_email):
@@ -462,8 +473,8 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
         <h3 style={{ margin:"0 0 4px", fontSize:17, fontWeight:800 }}>{editing?"Editar Transação":"Nova Transação"}</h3>
         <p style={{ margin:"0 0 16px", fontSize:12, color:C.muted }}>{editing?<>Registada por <strong>{editing.pessoa}</strong></>:<>A registar como <strong>{username}</strong></>}</p>
         <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-          {[["despesa","🔴 Despesa"],["receita","🟢 Receita"]].map(([val,label])=>(
-            <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>{label}</button>
+          {[["despesa","Despesa"],["receita","Receita"]].map(([val,label])=>(
+            <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><IconTx tipo={val} size={14} cor={f.tipo===val?C.onPrimary:(val==="receita"?C.income:C.expense)} />{label}</button>
           ))}
         </div>
         {[{l:"Valor (€)",k:"valor",t:"number",ph:"0,00"},{l:"Descrição",k:"descricao",t:"text",ph:"Ex: Supermercado"},{l:"Data",k:"data",t:"date"}].map(({l,k,t,ph})=>(
@@ -623,7 +634,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
           ? <p style={{ color:C.muted, fontSize:13, textAlign:"center", padding:"16px 0" }}>Nenhuma transação este mês.</p>
           : monthTxs.slice(0,6).map(t=>(
             <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${C.faint}` }}>
-              <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{t.tipo==="receita"?"💚":"🔴"}</div>
+              <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><IconTx tipo={t.tipo} /></div>
               <div style={{ flex:1, minWidth:0 }}>
                 <p style={{ margin:0, fontSize:14, fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{t.descricao||t.categoria}</p>
                 <p style={{ margin:"1px 0 0", fontSize:11, color:C.muted }}>{t.categoria} · {t.data} · <strong>{t.pessoa||""}</strong></p>
@@ -639,21 +650,49 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
 
 function Transacoes({ txs, onDelete, onEdit }) {
   const [filtro, setFiltro] = useState("todos");
+  const [categoria, setCategoria] = useState("todas");
+  const [pessoa, setPessoa] = useState("todas");
   const [search, setSearch] = useState("");
-  const lista = txs.filter(t=>(filtro==="todos"||t.tipo===filtro)&&(!search||(t.descricao+t.categoria).toLowerCase().includes(search.toLowerCase())));
+
+  const categorias = useMemo(() => [...new Set(txs.map(t=>t.categoria))].sort(), [txs]);
+  const pessoas = useMemo(() => [...new Set(txs.map(t=>t.pessoa).filter(Boolean))].sort(), [txs]);
+
+  const lista = txs.filter(t =>
+    (filtro==="todos"||t.tipo===filtro) &&
+    (categoria==="todas"||t.categoria===categoria) &&
+    (pessoa==="todas"||t.pessoa===pessoa) &&
+    (!search||(t.descricao+t.categoria).toLowerCase().includes(search.toLowerCase()))
+  );
+  const selectStyle = { padding:"7px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, cursor:"pointer" };
+
   return (
     <Card>
-      <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
+      <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar…" style={{ flex:1, minWidth:140, padding:"8px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
         {["todos","receita","despesa"].map(f=>(
           <button key={f} onClick={()=>setFiltro(f)} style={{ padding:"7px 12px", borderRadius:9, border:`1.5px solid ${filtro===f?C.primary:C.border}`, background:filtro===f?C.primary:"none", color:filtro===f?C.onPrimary:C.muted, cursor:"pointer", fontSize:12, fontWeight:600 }}>{f==="todos"?"Todos":f==="receita"?"Receitas":"Despesas"}</button>
         ))}
       </div>
+      <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
+        <select value={categoria} onChange={e=>setCategoria(e.target.value)} style={selectStyle}>
+          <option value="todas">Todas as categorias</option>
+          {categorias.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        {pessoas.length > 1 && (
+          <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={selectStyle}>
+            <option value="todas">Todos</option>
+            {pessoas.map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+        )}
+        {(categoria!=="todas"||pessoa!=="todas"||filtro!=="todos") && (
+          <button onClick={()=>{setCategoria("todas");setPessoa("todas");setFiltro("todos");}} style={{ ...selectStyle, color:C.muted, cursor:"pointer" }}>Limpar filtros</button>
+        )}
+      </div>
       {lista.length===0
         ? <p style={{ color:C.muted, textAlign:"center", padding:"20px 0", fontSize:13 }}>Nenhuma transação encontrada.</p>
         : lista.map(t=>(
           <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.faint}` }}>
-            <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{t.tipo==="receita"?"💚":"🔴"}</div>
+            <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><IconTx tipo={t.tipo} /></div>
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ margin:0, fontSize:14, fontWeight:500 }}>{t.descricao||t.categoria}{t.fixa_id&&<span title="Lançada automaticamente (despesa fixa)" style={{marginLeft:5}}>🔁</span>}</p>
               <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{t.categoria} · {t.data} · <strong>{t.pessoa||""}</strong></p>
@@ -732,8 +771,8 @@ function DespesasFixas({ fixas, onAdd, onToggle, onDelete }) {
         <Card style={{ marginBottom:16 }}>
           <h4 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Nova despesa/receita fixa</h4>
           <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-            {[["despesa","🔴 Despesa"],["receita","🟢 Receita"]].map(([val,label])=>(
-              <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>{label}</button>
+            {[["despesa","Despesa"],["receita","Receita"]].map(([val,label])=>(
+              <button key={val} onClick={()=>setF(p=>({...p,tipo:val,categoria:CATEGORIAS[val][0]}))} style={{ flex:1, padding:"9px 0", borderRadius:10, border:`1.5px solid ${f.tipo===val?C.primary:C.border}`, background:f.tipo===val?C.primary:"none", color:f.tipo===val?C.onPrimary:C.muted, cursor:"pointer", fontWeight:700, fontSize:13, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><IconTx tipo={val} size={14} cor={f.tipo===val?C.onPrimary:(val==="receita"?C.income:C.expense)} />{label}</button>
             ))}
           </div>
           <div style={{ marginBottom:12 }}>
