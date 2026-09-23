@@ -37,7 +37,7 @@ async function ativarLembretes(username, casaCodigo, userId) {
 
 const CATEGORIAS = {
   receita: ["Salário", "Freelance", "Investimentos", "Rendas", "Outros"],
-  despesa: ["Habitação", "Alimentação", "Transporte", "Saúde", "Lazer", "Educação", "Vestuário", "Outros"],
+  despesa: ["Habitação", "Alimentação", "Transporte", "Saúde", "Lazer", "Educação", "Vestuário", "Animais", "Outros"],
 };
 const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const CAT_COLORS = ["#F59E0B","#F43F5E","#C084FC","#38BDF8","#34D399","#FB923C","#818CF8","#A78BFA"];
