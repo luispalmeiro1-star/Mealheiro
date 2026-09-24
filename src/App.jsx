@@ -614,7 +614,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
               <PieChart><Pie data={expByCat} cx="50%" cy="50%" innerRadius={35} outerRadius={62} paddingAngle={2} dataKey="value" strokeWidth={0}>{expByCat.map((_,i)=><Cell key={i} fill={CAT_COLORS[i%CAT_COLORS.length]} />)}</Pie></PieChart>
             </ResponsiveContainer>
             <div style={{ flex:1 }}>
-              {expByCat.slice(0,5).map((item,i)=>(
+              {expByCat.map((item,i)=>(
                 <div key={item.name} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:7 }}>
                     <div style={{ width:8, height:8, borderRadius:"50%", background:CAT_COLORS[i%CAT_COLORS.length] }} />
