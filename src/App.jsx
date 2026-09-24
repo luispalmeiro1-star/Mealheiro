@@ -213,6 +213,7 @@ export default function App() {
   const [fixas, setFixas] = useState([]);
   const [listaQuinta, setListaQuinta] = useState([]);
   const [emprestimos, setEmprestimos] = useState([]);
+  const [fechos, setFechos] = useState([]);
   const [editando, setEditando] = useState(null); // transação a editar, ou null
   const [customProds, setCustomProds] = useState({}); // { categoria: [produtos] }
   const [loading, setLoading] = useState(true);
@@ -258,7 +259,7 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
@@ -269,8 +270,9 @@ export default function App() {
       supabase.from("despesas_fixas").select("*").eq("casa_codigo", casaCodigo).order("dia_mes", { ascending: true }),
       supabase.from("produtos_quinta").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("emprestimos").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
+      supabase.from("fechos_mes").select("*").eq("casa_codigo", casaCodigo).order("data_fim", { ascending: false }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -290,7 +292,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m);
     setLoading(false); setSyncing(false);
   }
 
@@ -299,7 +301,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -320,14 +322,31 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]);
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]);
   }
 
   const now = new Date();
-  const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-  const monthTxs = useMemo(() => txs.filter(t => monthKey(t.data) === curMonth), [txs, curMonth]);
+  // O "período atual" é desde o último fecho de mês (ou desde sempre, se ainda não
+  // fecharam nenhum) — deixou de estar preso ao mês do calendário.
+  const ultimoFecho = fechos[0]; // fechos vem ordenado por data_fim desc
+  const monthTxs = useMemo(() => {
+    if (!ultimoFecho) return txs;
+    return txs.filter(t => t.data > ultimoFecho.data_fim);
+  }, [txs, ultimoFecho]);
   const receitas = useMemo(() => monthTxs.filter(t=>t.tipo==="receita").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
   const despesas = useMemo(() => monthTxs.filter(t=>t.tipo==="despesa").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
+
+  async function fecharMes(nome) {
+    const dataInicio = ultimoFecho ? new Date(new Date(ultimoFecho.data_fim).getTime()+86400000).toISOString().slice(0,10) : null;
+    const dataFim = today();
+    const { data, error } = await supabase.from("fechos_mes").insert({
+      casa_codigo: casaCodigo, nome, data_inicio: dataInicio, data_fim: dataFim,
+      receitas, despesas, saldo: receitas-despesas, criado_por: user.username,
+    }).select();
+    if (error) { alert("Erro ao fechar o mês: " + error.message); return false; }
+    if (data && data[0]) setFechos(p => [data[0], ...p]);
+    return true;
+  }
 
   async function addTx(tx) {
     const { data, error } = await supabase.from("transacoes").insert({...tx, casa_codigo:casaCodigo, pessoa:user.username}).select();
@@ -444,7 +463,7 @@ export default function App() {
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }}>
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
         {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
-        {tab==="Resumo" && <Resumo monthTxs={monthTxs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} />}
+        {tab==="Resumo" && <Resumo monthTxs={monthTxs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} />}
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} />}
@@ -498,10 +517,26 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
   );
 }
 
-function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
+function Resumo({ monthTxs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar }) {
   const saldo = receitas - despesas;
   const [membros, setMembros] = useState([]);
   const [showCodigo, setShowCodigo] = useState(false);
+  const [showFechar, setShowFechar] = useState(false);
+  const [nomeFecho, setNomeFecho] = useState("");
+  const [fechando, setFechando] = useState(false);
+  const [mostrarHistoricoFechos, setMostrarHistoricoFechos] = useState(false);
+
+  const inicioLabel = ultimoFecho
+    ? new Date(new Date(ultimoFecho.data_fim).getTime()+86400000).toLocaleDateString("pt-PT")
+    : null;
+  const nomeFechoSugerido = `Até ${new Date().toLocaleDateString("pt-PT")}`;
+
+  async function confirmarFechar() {
+    setFechando(true);
+    const ok = await onFechar(nomeFecho.trim() || nomeFechoSugerido);
+    setFechando(false);
+    if (ok) { setShowFechar(false); setNomeFecho(""); }
+  }
   const [valoresVisiveis, setValoresVisiveis] = useState(() => {
     try { return localStorage.getItem("ml_valores_visiveis") === "sim"; } catch { return false; }
   });
@@ -541,11 +576,38 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-      <div style={{ display:"flex", justifyContent:"flex-end" }}>
-        <button onClick={alternarValores} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:C.muted, display:"flex", alignItems:"center", gap:5 }}>
-          {valoresVisiveis ? "🙈 Esconder valores" : "👁 Mostrar valores"}
-        </button>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
+        <p style={{ margin:0, fontSize:12, color:C.muted }}>
+          {inicioLabel ? <>Período atual: desde <strong>{inicioLabel}</strong></> : <>Período atual: desde o início</>}
+        </p>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={()=>setShowFechar(true)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:C.text, fontWeight:600 }}>📁 Fechar mês</button>
+          <button onClick={alternarValores} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:C.muted, display:"flex", alignItems:"center", gap:5 }}>
+            {valoresVisiveis ? "🙈 Esconder valores" : "👁 Mostrar valores"}
+          </button>
+        </div>
       </div>
+
+      {showFechar && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setShowFechar(false)}>
+          <div style={{ background:C.surface, borderRadius:20, padding:28, width:"100%", maxWidth:360, border:`1px solid ${C.border}` }} onClick={e=>e.stopPropagation()}>
+            <h3 style={{ margin:"0 0 4px", fontSize:17, fontWeight:800 }}>Fechar o período atual</h3>
+            <p style={{ margin:"0 0 16px", fontSize:12, color:C.muted }}>Guarda o resumo de {inicioLabel?`${inicioLabel} até hoje`:"até hoje"} e começa um período novo, do zero.</p>
+            <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderTop:`1px solid ${C.faint}`, borderBottom:`1px solid ${C.faint}`, marginBottom:16, fontSize:14 }}>
+              <span style={{ color:C.income, fontWeight:700 }}>+{fmt(receitas)}</span>
+              <span style={{ color:C.expense, fontWeight:700 }}>-{fmt(despesas)}</span>
+              <span style={{ color:saldo>=0?C.income:C.expense, fontWeight:800 }}>= {fmt(saldo)}</span>
+            </div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Nome deste período (opcional)</label>
+            <input value={nomeFecho} onChange={e=>setNomeFecho(e.target.value)} placeholder={nomeFechoSugerido} style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none", marginBottom:18 }} />
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setShowFechar(false)} style={{ flex:1, padding:"11px 0", borderRadius:10, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontWeight:600 }}>Cancelar</button>
+              <button onClick={confirmarFechar} disabled={fechando} style={{ flex:2, padding:"11px 0", borderRadius:10, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:14, opacity:fechando?0.7:1 }}>{fechando?"A fechar…":"Fechar e guardar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
         {[{l:"Receitas",v:receitas,c:C.income,icon:"↑"},{l:"Despesas",v:despesas,c:C.expense,icon:"↓"},{l:"Saldo",v:saldo,c:saldo>=0?C.income:C.expense,icon:"="}].map(({l,v,c,icon})=>(
           <Card key={l} style={{ padding:"14px 16px", cursor:"pointer" }} onClick={alternarValores}>
@@ -631,7 +693,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
       <Card>
         <p style={{ margin:"0 0 12px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Últimas transações</p>
         {monthTxs.length===0
-          ? <p style={{ color:C.muted, fontSize:13, textAlign:"center", padding:"16px 0" }}>Nenhuma transação este mês.</p>
+          ? <p style={{ color:C.muted, fontSize:13, textAlign:"center", padding:"16px 0" }}>Nenhuma transação neste período.</p>
           : monthTxs.slice(0,6).map(t=>(
             <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${C.faint}` }}>
               <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><IconTx tipo={t.tipo} /></div>
@@ -644,6 +706,27 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username }) {
           ))
         }
       </Card>
+
+      {fechos.length > 0 && (
+        <>
+          <button onClick={()=>setMostrarHistoricoFechos(s=>!s)} style={{ width:"100%", padding:"10px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:13, fontWeight:600 }}>
+            {mostrarHistoricoFechos ? "Esconder meses fechados" : `Ver meses fechados (${fechos.length})`}
+          </button>
+          {mostrarHistoricoFechos && (
+            <Card>
+              {fechos.map(f => (
+                <div key={f.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.faint}` }}>
+                  <div>
+                    <p style={{ margin:0, fontSize:14, fontWeight:600 }}>{f.nome}</p>
+                    <p style={{ margin:"1px 0 0", fontSize:11, color:C.muted }}>{f.data_inicio ? `${new Date(f.data_inicio).toLocaleDateString("pt-PT")} — ` : "até "}{new Date(f.data_fim).toLocaleDateString("pt-PT")} · fechado por {f.criado_por}</p>
+                  </div>
+                  <span style={{ fontWeight:800, fontSize:14, color:parseFloat(f.saldo)>=0?C.income:C.expense }}>{fmt(f.saldo)}</span>
+                </div>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
     </div>
   );
 }
