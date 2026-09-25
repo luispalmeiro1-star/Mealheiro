@@ -464,7 +464,7 @@ export default function App() {
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
         {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
         {tab==="Resumo" && <Resumo monthTxs={monthTxs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} />}
-        {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} />}
+        {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
@@ -731,16 +731,27 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username, fechos, ul
   );
 }
 
-function Transacoes({ txs, onDelete, onEdit }) {
+function Transacoes({ txs, onDelete, onEdit, fechos, ultimoFecho }) {
+  // Por omissão só mostra o período atual (desde o último "fechar mês") — os
+  // meses fechados ficam acessíveis aqui, mas escolhidos explicitamente.
+  const [periodo, setPeriodo] = useState("atual");
   const [filtro, setFiltro] = useState("todos");
   const [categoria, setCategoria] = useState("todas");
   const [pessoa, setPessoa] = useState("todas");
   const [search, setSearch] = useState("");
 
+  const txsPeriodo = useMemo(() => {
+    if (periodo === "todos") return txs;
+    if (periodo === "atual") return ultimoFecho ? txs.filter(t => t.data > ultimoFecho.data_fim) : txs;
+    const f = fechos.find(f => String(f.id) === periodo);
+    if (!f) return txs;
+    return txs.filter(t => (!f.data_inicio || t.data >= f.data_inicio) && t.data <= f.data_fim);
+  }, [txs, periodo, ultimoFecho, fechos]);
+
   const categorias = useMemo(() => [...new Set(txs.map(t=>t.categoria))].sort(), [txs]);
   const pessoas = useMemo(() => [...new Set(txs.map(t=>t.pessoa).filter(Boolean))].sort(), [txs]);
 
-  const lista = txs.filter(t =>
+  const lista = txsPeriodo.filter(t =>
     (filtro==="todos"||t.tipo===filtro) &&
     (categoria==="todas"||t.categoria===categoria) &&
     (pessoa==="todas"||t.pessoa===pessoa) &&
@@ -750,6 +761,15 @@ function Transacoes({ txs, onDelete, onEdit }) {
 
   return (
     <Card>
+      {fechos.length > 0 && (
+        <div style={{ marginBottom:10 }}>
+          <select value={periodo} onChange={e=>setPeriodo(e.target.value)} style={{ ...selectStyle, width:"100%", fontWeight:600 }}>
+            <option value="atual">📁 Período atual</option>
+            <option value="todos">Todo o histórico</option>
+            {fechos.map(f=><option key={f.id} value={String(f.id)}>{f.nome}</option>)}
+          </select>
+        </div>
+      )}
       <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar…" style={{ flex:1, minWidth:140, padding:"8px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
         {["todos","receita","despesa"].map(f=>(
