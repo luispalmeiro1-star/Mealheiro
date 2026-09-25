@@ -197,7 +197,7 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
   );
 }
 
-const TABS = ["Resumo", "Transações", "Fixas", "Empréstimos", "Orçamentos", "Metas", "Compras", "Quinta", "Bebé", "Prendas", "Relatórios"];
+const TABS = ["Resumo", "Transações", "Fixas", "Empréstimos", "Cartão Refeição", "Orçamentos", "Metas", "Compras", "Quinta", "Bebé", "Prendas", "Relatórios"];
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
@@ -214,6 +214,7 @@ export default function App() {
   const [listaQuinta, setListaQuinta] = useState([]);
   const [emprestimos, setEmprestimos] = useState([]);
   const [fechos, setFechos] = useState([]);
+  const [cartaoMov, setCartaoMov] = useState([]);
   const [editando, setEditando] = useState(null); // transação a editar, ou null
   const [customProds, setCustomProds] = useState({}); // { categoria: [produtos] }
   const [loading, setLoading] = useState(true);
@@ -259,7 +260,7 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr, kr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
@@ -271,8 +272,9 @@ export default function App() {
       supabase.from("produtos_quinta").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("emprestimos").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("fechos_mes").select("*").eq("casa_codigo", casaCodigo).order("data_fim", { ascending: false }),
+      supabase.from("cartao_refeicao_mov").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [], k = kr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -292,7 +294,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m); setCartaoMov(k);
     setLoading(false); setSyncing(false);
   }
 
@@ -301,7 +303,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes", "cartao_refeicao_mov"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -322,7 +324,7 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]);
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]); setCartaoMov([]);
   }
 
   const now = new Date();
@@ -352,10 +354,37 @@ export default function App() {
   }
 
   async function addTx(tx) {
-    const { data, error } = await supabase.from("transacoes").insert({...tx, casa_codigo:casaCodigo, pessoa:user.username}).select();
+    // Despesa marcada como "pago com cartão refeição" nunca chega a entrar nas
+    // contas da família — vai só para o saldo pessoal do cartão.
+    if (tx.pagoCartao) {
+      const { data, error } = await supabase.from("cartao_refeicao_mov").insert({
+        casa_codigo: casaCodigo, pessoa: user.username, tipo: "despesa",
+        valor: tx.valor, categoria: tx.categoria, descricao: tx.descricao, data: tx.data,
+      }).select();
+      if (error) { alert("Erro ao guardar no cartão refeição: " + error.message); return; }
+      if (data && data[0]) setCartaoMov(p=>[data[0],...p]);
+      setShowForm(false);
+      return;
+    }
+    const { pagoCartao, ...txLimpa } = tx;
+    const { data, error } = await supabase.from("transacoes").insert({...txLimpa, casa_codigo:casaCodigo, pessoa:user.username}).select();
     if (error) { alert("Erro ao guardar transação: " + error.message); return; }
     if (data && data[0]) setTxs(p=>[data[0],...p]);
     setShowForm(false);
+  }
+  async function carregarCartao(valor, descricao) {
+    const { data, error } = await supabase.from("cartao_refeicao_mov").insert({
+      casa_codigo: casaCodigo, pessoa: user.username, tipo: "carregamento", valor, descricao: descricao || null,
+    }).select();
+    if (error) { alert("Erro ao carregar cartão: " + error.message); return false; }
+    if (data && data[0]) setCartaoMov(p=>[data[0],...p]);
+    return true;
+  }
+  async function removerMovCartao(id) {
+    if (!window.confirm("Remover este movimento do cartão refeição?")) return;
+    const { error } = await supabase.from("cartao_refeicao_mov").delete().eq("id", id);
+    if (error) { alert("Erro: " + error.message); return; }
+    setCartaoMov(p=>p.filter(m=>m.id!==id));
   }
   async function deleteTx(id) {
     const { error } = await supabase.from("transacoes").delete().eq("id", id);
@@ -470,6 +499,7 @@ export default function App() {
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} />}
+        {tab==="Cartão Refeição" && <CartaoRefeicao movimentos={cartaoMov} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
@@ -486,9 +516,10 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
   const [f, setF] = useState(editing
     ? { tipo:editing.tipo, valor:String(editing.valor), categoria:editing.categoria, descricao:editing.descricao||"", data:editing.data }
     : { tipo:"despesa", valor:"", categoria:"Alimentação", descricao:"", data:today() });
+  const [pagoCartao, setPagoCartao] = useState(false);
   const [saving, setSaving] = useState(false);
   const set = k => v => setF(p=>({...p,[k]:v}));
-  async function save() { if (!f.valor||isNaN(parseFloat(f.valor))) return; setSaving(true); await onSave({tipo:f.tipo,valor:parseFloat(f.valor),categoria:f.categoria,descricao:f.descricao,data:f.data}); setSaving(false); }
+  async function save() { if (!f.valor||isNaN(parseFloat(f.valor))) return; setSaving(true); await onSave({tipo:f.tipo,valor:parseFloat(f.valor),categoria:f.categoria,descricao:f.descricao,data:f.data,...(!editing&&f.tipo==="despesa"?{pagoCartao}:{})}); setSaving(false); }
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={onClose}>
       <div style={{ background:C.surface, borderRadius:20, padding:28, width:"100%", maxWidth:360, border:`1px solid ${C.border}` }} onClick={e=>e.stopPropagation()}>
@@ -511,6 +542,12 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
             {CATEGORIAS[f.tipo].map(c=><option key={c}>{c}</option>)}
           </select>
         </div>
+        {!editing && f.tipo==="despesa" && (
+          <label style={{ display:"flex", alignItems:"center", gap:8, marginBottom:18, cursor:"pointer", padding:"10px 12px", borderRadius:10, border:`1.5px solid ${pagoCartao?C.accent:C.border}`, background:pagoCartao?C.accent+"18":"none" }}>
+            <input type="checkbox" checked={pagoCartao} onChange={e=>setPagoCartao(e.target.checked)} style={{ width:16, height:16, cursor:"pointer" }} />
+            <span style={{ fontSize:13, color:C.text }}>🍽️ Pagar com o cartão refeição <span style={{ color:C.muted }}>(não entra nas contas da família)</span></span>
+          </label>
+        )}
         <div style={{ display:"flex", gap:8 }}>
           <button onClick={onClose} style={{ flex:1, padding:"11px 0", borderRadius:10, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontWeight:600 }}>Cancelar</button>
           <button onClick={save} disabled={saving} style={{ flex:2, padding:"11px 0", borderRadius:10, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:14, opacity:saving?0.7:1 }}>{saving?"A guardar…":editing?"Guardar alterações":"Guardar"}</button>
@@ -1262,6 +1299,77 @@ function ListaQuinta({ lista, setLista, casaCodigo, username }) {
 }
 
 // ── Empréstimos à conta comum ───────────────────────────────────────────────
+// ── Cartão Refeição ──────────────────────────────────────────────────────────
+// Movimentos pessoais (cada um só vê e gere o seu próprio cartão), fora das
+// contas da família — despesas pagas com ele nunca entram em "transacoes".
+function CartaoRefeicao({ movimentos, username, onCarregar, onRemover }) {
+  const [showCarregar, setShowCarregar] = useState(false);
+  const [valor, setValor] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const meus = useMemo(() => movimentos.filter(m => m.pessoa === username), [movimentos, username]);
+  const saldo = useMemo(() => meus.reduce((s,m) => s + (m.tipo==="carregamento" ? parseFloat(m.valor) : -parseFloat(m.valor)), 0), [meus]);
+
+  async function guardarCarregamento() {
+    if (!valor || isNaN(parseFloat(valor))) return;
+    setSaving(true);
+    const ok = await onCarregar(parseFloat(valor), descricao);
+    setSaving(false);
+    if (ok) { setValor(""); setDescricao(""); setShowCarregar(false); }
+  }
+
+  return (
+    <div>
+      <Card style={{ padding:"18px 20px", marginBottom:16 }}>
+        <p style={{ margin:"0 0 4px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>🍽️ Saldo do cartão refeição de {username}</p>
+        <p style={{ margin:0, fontSize:28, fontWeight:800, color:saldo>=0?C.income:C.expense, letterSpacing:"-0.5px" }}>{fmt(saldo)}</p>
+      </Card>
+
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <p style={{ margin:0, color:C.muted, fontSize:13 }}>Despesas pagas com o cartão não contam para as contas da família.</p>
+        <button onClick={()=>setShowCarregar(s=>!s)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontWeight:700, fontSize:13, whiteSpace:"nowrap" }}>+ Carregar</button>
+      </div>
+
+      {showCarregar && (
+        <Card style={{ marginBottom:16 }}>
+          <h4 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Carregar cartão refeição</h4>
+          <div style={{ marginBottom:12 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Valor (€)</label>
+            <input type="number" value={valor} onChange={e=>setValor(e.target.value)} placeholder="0,00" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:C.muted, marginBottom:4 }}>Nota (opcional)</label>
+            <input value={descricao} onChange={e=>setDescricao(e.target.value)} placeholder="Ex: Carregamento de setembro" style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none" }} />
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>setShowCarregar(false)} style={{ flex:1, padding:"9px 0", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer" }}>Cancelar</button>
+            <button onClick={guardarCarregamento} disabled={saving} style={{ flex:2, padding:"9px 0", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, opacity:saving?0.7:1 }}>{saving?"A guardar…":"Guardar"}</button>
+          </div>
+        </Card>
+      )}
+
+      {meus.length===0
+        ? <Card><p style={{ color:C.muted, textAlign:"center", padding:"20px 0", fontSize:13 }}>Ainda não há movimentos no cartão.</p></Card>
+        : meus.map(m => (
+          <Card key={m.id} style={{ marginBottom:10, padding:"12px 18px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <p style={{ margin:0, fontSize:14, fontWeight:600 }}>{m.descricao || (m.tipo==="carregamento"?"Carregamento":m.categoria)}</p>
+                <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{m.tipo==="carregamento"?"Carregamento":m.categoria} · {m.data}</p>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontWeight:800, fontSize:14, color:m.tipo==="carregamento"?C.income:C.expense }}>{m.tipo==="carregamento"?"+":"-"}{fmt(m.valor)}</span>
+                <button onClick={()=>onRemover(m.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12 }}>✕</button>
+              </div>
+            </div>
+          </Card>
+        ))
+      }
+    </div>
+  );
+}
+
 function Emprestimos({ emprestimos, setEmprestimos, casaCodigo, username }) {
   const [showAdd, setShowAdd] = useState(false);
   const [f, setF] = useState({ valor:"", descricao:"", data:today() });
