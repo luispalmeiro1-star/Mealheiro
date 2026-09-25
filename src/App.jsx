@@ -335,8 +335,11 @@ export default function App() {
   // transação criada no mesmo dia em que se fechou o mês, mas DEPOIS do fecho,
   // já deve contar para o período novo.
   const monthTxs = useMemo(() => {
-    if (!ultimoFecho) return txs;
-    return txs.filter(t => new Date(t.created_at) > new Date(ultimoFecho.created_at));
+    // Despesas pagas com o cartão refeição não contam para o Resumo nem para
+    // os Orçamentos da família — só aparecem na aba Transações (histórico).
+    const semCartao = txs.filter(t => !t.pago_cartao);
+    if (!ultimoFecho) return semCartao;
+    return semCartao.filter(t => new Date(t.created_at) > new Date(ultimoFecho.created_at));
   }, [txs, ultimoFecho]);
   const receitas = useMemo(() => monthTxs.filter(t=>t.tipo==="receita").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
   const despesas = useMemo(() => monthTxs.filter(t=>t.tipo==="despesa").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
@@ -354,20 +357,10 @@ export default function App() {
   }
 
   async function addTx(tx) {
-    // Despesa marcada como "pago com cartão refeição" nunca chega a entrar nas
-    // contas da família — vai só para o saldo pessoal do cartão.
-    if (tx.pagoCartao) {
-      const { data, error } = await supabase.from("cartao_refeicao_mov").insert({
-        casa_codigo: casaCodigo, pessoa: user.username, tipo: "despesa",
-        valor: tx.valor, categoria: tx.categoria, descricao: tx.descricao, data: tx.data,
-      }).select();
-      if (error) { alert("Erro ao guardar no cartão refeição: " + error.message); return; }
-      if (data && data[0]) setCartaoMov(p=>[data[0],...p]);
-      setShowForm(false);
-      return;
-    }
-    const { pagoCartao, ...txLimpa } = tx;
-    const { data, error } = await supabase.from("transacoes").insert({...txLimpa, casa_codigo:casaCodigo, pessoa:user.username}).select();
+    // Uma despesa "paga com cartão refeição" é uma transação normal — aparece
+    // nas Transações como qualquer outra — só que fica marcada (pago_cartao)
+    // para não entrar nos totais de Resumo/Orçamentos da família.
+    const { data, error } = await supabase.from("transacoes").insert({...tx, casa_codigo:casaCodigo, pessoa:user.username}).select();
     if (error) { alert("Erro ao guardar transação: " + error.message); return; }
     if (data && data[0]) setTxs(p=>[data[0],...p]);
     setShowForm(false);
@@ -499,7 +492,7 @@ export default function App() {
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} />}
-        {tab==="Cartão Refeição" && <CartaoRefeicao movimentos={cartaoMov} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} />}
+        {tab==="Cartão Refeição" && <CartaoRefeicao carregamentos={cartaoMov} despesasCartao={txs.filter(t=>t.pago_cartao)} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} onRemoverDespesa={deleteTx} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
@@ -519,7 +512,7 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
   const [pagoCartao, setPagoCartao] = useState(false);
   const [saving, setSaving] = useState(false);
   const set = k => v => setF(p=>({...p,[k]:v}));
-  async function save() { if (!f.valor||isNaN(parseFloat(f.valor))) return; setSaving(true); await onSave({tipo:f.tipo,valor:parseFloat(f.valor),categoria:f.categoria,descricao:f.descricao,data:f.data,...(!editing&&f.tipo==="despesa"?{pagoCartao}:{})}); setSaving(false); }
+  async function save() { if (!f.valor||isNaN(parseFloat(f.valor))) return; setSaving(true); await onSave({tipo:f.tipo,valor:parseFloat(f.valor),categoria:f.categoria,descricao:f.descricao,data:f.data,...(!editing&&f.tipo==="despesa"?{pago_cartao:pagoCartao}:{})}); setSaving(false); }
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={onClose}>
       <div style={{ background:C.surface, borderRadius:20, padding:28, width:"100%", maxWidth:360, border:`1px solid ${C.border}` }} onClick={e=>e.stopPropagation()}>
@@ -841,8 +834,8 @@ function Transacoes({ txs, onDelete, onEdit, fechos, ultimoFecho }) {
           <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.faint}` }}>
             <div style={{ width:36, height:36, borderRadius:10, background:t.tipo==="receita"?C.income+"18":C.expense+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><IconTx tipo={t.tipo} /></div>
             <div style={{ flex:1, minWidth:0 }}>
-              <p style={{ margin:0, fontSize:14, fontWeight:500 }}>{t.descricao||t.categoria}{t.fixa_id&&<span title="Lançada automaticamente (despesa fixa)" style={{marginLeft:5}}>🔁</span>}</p>
-              <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{t.categoria} · {t.data} · <strong>{t.pessoa||""}</strong></p>
+              <p style={{ margin:0, fontSize:14, fontWeight:500 }}>{t.descricao||t.categoria}{t.fixa_id&&<span title="Lançada automaticamente (despesa fixa)" style={{marginLeft:5}}>🔁</span>}{t.pago_cartao&&<span title="Paga com o cartão refeição — não conta para as contas da família" style={{marginLeft:5}}>🍽️</span>}</p>
+              <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{t.categoria} · {t.data} · <strong>{t.pessoa||""}</strong>{t.pago_cartao&&<span style={{color:C.accent}}> · cartão refeição</span>}</p>
             </div>
             <span style={{ fontWeight:800, fontSize:14, color:t.tipo==="receita"?C.income:C.expense, marginRight:8, flexShrink:0 }}>{t.tipo==="receita"?"+":"-"}{fmt(t.valor)}</span>
             <button onClick={()=>onEdit(t)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12, flexShrink:0 }}>✎</button>
@@ -1302,13 +1295,19 @@ function ListaQuinta({ lista, setLista, casaCodigo, username }) {
 // ── Cartão Refeição ──────────────────────────────────────────────────────────
 // Movimentos pessoais (cada um só vê e gere o seu próprio cartão), fora das
 // contas da família — despesas pagas com ele nunca entram em "transacoes".
-function CartaoRefeicao({ movimentos, username, onCarregar, onRemover }) {
+function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, onRemover, onRemoverDespesa }) {
   const [showCarregar, setShowCarregar] = useState(false);
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const meus = useMemo(() => movimentos.filter(m => m.pessoa === username), [movimentos, username]);
+  // Junta os carregamentos (tabela própria) com as despesas pagas por cartão
+  // (que agora vivem em "transacoes", marcadas com pago_cartao) numa única lista.
+  const meus = useMemo(() => {
+    const meusCarregamentos = carregamentos.filter(m => m.pessoa === username).map(m => ({ ...m, origem:"carregamento" }));
+    const minhasDespesas = despesasCartao.filter(t => t.pessoa === username).map(t => ({ ...t, tipo:"despesa", origem:"despesa" }));
+    return [...meusCarregamentos, ...minhasDespesas].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [carregamentos, despesasCartao, username]);
   const saldo = useMemo(() => meus.reduce((s,m) => s + (m.tipo==="carregamento" ? parseFloat(m.valor) : -parseFloat(m.valor)), 0), [meus]);
 
   async function guardarCarregamento() {
@@ -1360,7 +1359,7 @@ function CartaoRefeicao({ movimentos, username, onCarregar, onRemover }) {
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontWeight:800, fontSize:14, color:m.tipo==="carregamento"?C.income:C.expense }}>{m.tipo==="carregamento"?"+":"-"}{fmt(m.valor)}</span>
-                <button onClick={()=>onRemover(m.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12 }}>✕</button>
+                <button onClick={()=>m.origem==="carregamento"?onRemover(m.id):onRemoverDespesa(m.id)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, color:C.muted, cursor:"pointer", padding:"5px 9px", fontSize:12 }}>✕</button>
               </div>
             </div>
           </Card>
