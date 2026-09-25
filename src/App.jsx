@@ -329,9 +329,12 @@ export default function App() {
   // O "período atual" é desde o último fecho de mês (ou desde sempre, se ainda não
   // fecharam nenhum) — deixou de estar preso ao mês do calendário.
   const ultimoFecho = fechos[0]; // fechos vem ordenado por data_fim desc
+  // Compara por instante exato (created_at), não só pela data do dia — uma
+  // transação criada no mesmo dia em que se fechou o mês, mas DEPOIS do fecho,
+  // já deve contar para o período novo.
   const monthTxs = useMemo(() => {
     if (!ultimoFecho) return txs;
-    return txs.filter(t => t.data > ultimoFecho.data_fim);
+    return txs.filter(t => new Date(t.created_at) > new Date(ultimoFecho.created_at));
   }, [txs, ultimoFecho]);
   const receitas = useMemo(() => monthTxs.filter(t=>t.tipo==="receita").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
   const despesas = useMemo(() => monthTxs.filter(t=>t.tipo==="despesa").reduce((s,t)=>s+parseFloat(t.valor),0), [monthTxs]);
@@ -527,7 +530,7 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username, fechos, ul
   const [mostrarHistoricoFechos, setMostrarHistoricoFechos] = useState(false);
 
   const inicioLabel = ultimoFecho
-    ? new Date(new Date(ultimoFecho.data_fim).getTime()+86400000).toLocaleDateString("pt-PT")
+    ? new Date(ultimoFecho.created_at).toLocaleString("pt-PT", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })
     : null;
   const nomeFechoSugerido = `Até ${new Date().toLocaleDateString("pt-PT")}`;
 
@@ -742,10 +745,14 @@ function Transacoes({ txs, onDelete, onEdit, fechos, ultimoFecho }) {
 
   const txsPeriodo = useMemo(() => {
     if (periodo === "todos") return txs;
-    if (periodo === "atual") return ultimoFecho ? txs.filter(t => t.data > ultimoFecho.data_fim) : txs;
-    const f = fechos.find(f => String(f.id) === periodo);
-    if (!f) return txs;
-    return txs.filter(t => (!f.data_inicio || t.data >= f.data_inicio) && t.data <= f.data_fim);
+    // Compara por instante exato (created_at) — não só pela data do dia — para
+    // uma transação criada no mesmo dia de um fecho cair no lado certo do corte.
+    if (periodo === "atual") return ultimoFecho ? txs.filter(t => new Date(t.created_at) > new Date(ultimoFecho.created_at)) : txs;
+    const i = fechos.findIndex(f => String(f.id) === periodo);
+    if (i === -1) return txs;
+    const f = fechos[i];
+    const anterior = fechos[i+1]; // fechos vem ordenado do mais recente para o mais antigo
+    return txs.filter(t => new Date(t.created_at) <= new Date(f.created_at) && (!anterior || new Date(t.created_at) > new Date(anterior.created_at)));
   }, [txs, periodo, ultimoFecho, fechos]);
 
   const categorias = useMemo(() => [...new Set(txs.map(t=>t.categoria))].sort(), [txs]);
