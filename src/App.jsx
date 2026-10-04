@@ -240,6 +240,7 @@ export default function App() {
   const [desejos, setDesejos] = useState([]);
   const [fixas, setFixas] = useState([]);
   const [listaQuinta, setListaQuinta] = useState([]);
+  const [quintaHistorico, setQuintaHistorico] = useState([]);
   const [emprestimos, setEmprestimos] = useState([]);
   const [fechos, setFechos] = useState([]);
   const [cartaoMov, setCartaoMov] = useState([]);
@@ -295,7 +296,7 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr, kr] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr, kr, hr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
@@ -308,8 +309,9 @@ export default function App() {
       supabase.from("emprestimos").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("fechos_mes").select("*").eq("casa_codigo", casaCodigo).order("data_fim", { ascending: false }),
       supabase.from("cartao_refeicao_mov").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
+      supabase.from("quinta_historico").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [], k = kr.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [], k = kr.data || [], hq = hr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -329,7 +331,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m); setCartaoMov(k);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m); setCartaoMov(k); setQuintaHistorico(hq);
     setLoading(false); setSyncing(false);
   }
 
@@ -338,7 +340,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes", "cartao_refeicao_mov"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes", "cartao_refeicao_mov", "quinta_historico"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -359,7 +361,7 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]); setCartaoMov([]);
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]); setCartaoMov([]); setQuintaHistorico([]);
   }
 
   const now = new Date();
@@ -545,7 +547,7 @@ export default function App() {
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }} key={tab} className="tab-fade">
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
         {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
-        {tab==="Resumo" && <Resumo monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} />}
+        {tab==="Resumo" && <Resumo monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} fixas={fixas} />}
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} onToast={setToast} />}
@@ -553,7 +555,7 @@ export default function App() {
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
-        {tab==="Quinta" && <ListaQuinta lista={listaQuinta} setLista={setListaQuinta} casaCodigo={casaCodigo} username={user.username} />}
+        {tab==="Quinta" && <ListaQuinta lista={listaQuinta} setLista={setListaQuinta} casaCodigo={casaCodigo} username={user.username} historico={quintaHistorico} setHistorico={setQuintaHistorico} />}
         {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} onAlerta={msg=>setAvisos(p=>[msg,...p])} />}
         {tab==="Prendas" && <Prendas desejos={desejos} setDesejos={setDesejos} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Relatórios" && <Relatorios txs={txs} now={now} />}
@@ -608,12 +610,20 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
   );
 }
 
-function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar }) {
+function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar, fixas }) {
   const saldo = receitas - despesas;
   const gastoCartao = useMemo(() => {
     const periodo = txs.filter(t => t.pago_cartao && (!ultimoFecho || new Date(t.created_at) > new Date(ultimoFecho.created_at)));
     return periodo.reduce((s,t)=>s+parseFloat(t.valor),0);
   }, [txs, ultimoFecho]);
+  // Previsão: soma as despesas/receitas fixas ativas cujo dia ainda não chegou
+  // este mês (ainda não foram lançadas) para estimar o saldo no fim do mês.
+  const previsao = useMemo(() => {
+    const hoje = new Date().getDate();
+    const porLancar = (fixas||[]).filter(f => f.ativo && f.dia_mes > hoje);
+    const falta = porLancar.reduce((s,f) => s + (f.tipo==="receita" ? parseFloat(f.valor) : -parseFloat(f.valor)), 0);
+    return { falta, itens: porLancar };
+  }, [fixas]);
   const [membros, setMembros] = useState([]);
   const [showCodigo, setShowCodigo] = useState(false);
   const [showFechar, setShowFechar] = useState(false);
@@ -721,6 +731,15 @@ function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fecho
         <Card style={{ padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <span style={{ fontSize:13, color:C.muted }}>🍽️ Gasto no cartão refeição este período</span>
           <span style={{ fontWeight:700, fontSize:14, color:C.accent }}>{mostrar(gastoCartao)}</span>
+        </Card>
+      )}
+
+      {previsao.itens.length > 0 && (
+        <Card style={{ padding:"14px 16px" }}>
+          <p style={{ margin:"0 0 4px", fontSize:12, color:C.muted }}>
+            🔮 Com as {previsao.itens.length} despesa{previsao.itens.length>1?"s":""}/receita{previsao.itens.length>1?"s":""} fixa{previsao.itens.length>1?"s":""} que ainda falta{previsao.itens.length>1?"m":""} lançar este mês, prevês ficar com
+          </p>
+          <p style={{ margin:0, fontSize:20, fontWeight:800, color:(saldo+previsao.falta)>=0?C.income:C.expense }}>{mostrar(saldo+previsao.falta)}</p>
         </Card>
       )}
 
@@ -1263,7 +1282,7 @@ const PRODUTOS_QUINTA_SUGERIDOS = {
   "🍯 Outros": ["Mel","Azeite","Vinho caseiro","Compota caseira","Aguardente"],
 };
 
-function ListaQuinta({ lista, setLista, casaCodigo, username }) {
+function ListaQuinta({ lista, setLista, casaCodigo, username, historico, setHistorico }) {
   const [nome, setNome] = useState("");
   const [qtd, setQtd] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1283,9 +1302,16 @@ function ListaQuinta({ lista, setLista, casaCodigo, username }) {
   }
 
   async function jaFui(id) {
+    const item = lista.find(r => r.id === id);
     const { error } = await supabase.from("produtos_quinta").delete().eq("id", id);
     if (error) { alert("Erro: " + error.message); return; }
     setLista(l => l.filter(r => r.id !== id));
+    if (item) {
+      const { data } = await supabase.from("quinta_historico").insert({
+        casa_codigo: casaCodigo, produto: item.produto, quantidade: item.quantidade, pessoa: username,
+      }).select();
+      if (data && data[0]) setHistorico(h => [data[0], ...h]);
+    }
   }
 
   async function removerPorNome(produto) {
@@ -1306,12 +1332,59 @@ function ListaQuinta({ lista, setLista, casaCodigo, username }) {
     setLista([]);
   }
 
+  const [mostrarTendencia, setMostrarTendencia] = useState(false);
+  const tendencia = useMemo(() => {
+    const now = new Date();
+    return Array.from({length:6}, (_,i) => {
+      const d = new Date(now.getFullYear(), now.getMonth()-5+i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      const n = (historico||[]).filter(h => monthKey(h.created_at)===key).length;
+      return { name: MESES[d.getMonth()], idas:n };
+    });
+  }, [historico]);
+  const topProdutos = useMemo(() => {
+    const m = {};
+    (historico||[]).forEach(h => { m[h.produto] = (m[h.produto]||0)+1; });
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  }, [historico]);
+
   return (
     <div>
       <div style={{ marginBottom:16 }}>
         <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>🌾 Ir à Quinta</h2>
         <p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>{lista.length} produto{lista.length!==1?"s":""} para ir buscar</p>
       </div>
+
+      {historico && historico.length > 0 && (
+        <>
+          <button onClick={()=>setMostrarTendencia(s=>!s)} style={{ width:"100%", marginBottom:16, padding:"10px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:13, fontWeight:600 }}>
+            {mostrarTendencia ? "Esconder tendência" : "📈 Ver tendência das idas à quinta"}
+          </button>
+          {mostrarTendencia && (
+            <Card style={{ marginBottom:16 }}>
+              <p style={{ margin:"0 0 12px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Produtos trazidos por mês</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={tendencia} barCategoryGap="35%">
+                  <XAxis dataKey="name" tick={{fill:C.muted,fontSize:12}} axisLine={false} tickLine={false} />
+                  <YAxis tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, color:C.text, fontSize:12 }} />
+                  <Bar dataKey="idas" name="Produtos" fill={C.accent} radius={[5,5,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              {topProdutos.length > 0 && (
+                <div style={{ marginTop:14 }}>
+                  <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Mais trazidos</p>
+                  {topProdutos.map(([produto,n]) => (
+                    <div key={produto} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:13 }}>
+                      <span>{produto}</span><span style={{ color:C.muted, fontWeight:600 }}>{n}×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+        </>
+      )}
 
       <Card style={{ marginBottom:16 }}>
         <div style={{ display:"flex", gap:8 }}>
@@ -1384,13 +1457,13 @@ function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, o
   const [descricao, setDescricao] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Junta os carregamentos (tabela própria) com as despesas pagas por cartão
-  // (que agora vivem em "transacoes", marcadas com pago_cartao) numa única lista.
+  // O cartão refeição é um só, partilhado por toda a casa — carregamentos e
+  // despesas de qualquer pessoa da família entram no mesmo saldo único.
   const meus = useMemo(() => {
-    const meusCarregamentos = carregamentos.filter(m => m.pessoa === username).map(m => ({ ...m, origem:"carregamento" }));
-    const minhasDespesas = despesasCartao.filter(t => t.pessoa === username).map(t => ({ ...t, tipo:"despesa", origem:"despesa" }));
-    return [...meusCarregamentos, ...minhasDespesas].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
-  }, [carregamentos, despesasCartao, username]);
+    const todosCarregamentos = carregamentos.map(m => ({ ...m, origem:"carregamento" }));
+    const todasDespesas = despesasCartao.map(t => ({ ...t, tipo:"despesa", origem:"despesa" }));
+    return [...todosCarregamentos, ...todasDespesas].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [carregamentos, despesasCartao]);
   const saldo = useMemo(() => meus.reduce((s,m) => s + (m.tipo==="carregamento" ? parseFloat(m.valor) : -parseFloat(m.valor)), 0), [meus]);
 
   async function guardarCarregamento() {
@@ -1404,7 +1477,7 @@ function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, o
   return (
     <div>
       <Card style={{ padding:"18px 20px", marginBottom:16 }}>
-        <p style={{ margin:"0 0 4px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>🍽️ Saldo do cartão refeição de {username}</p>
+        <p style={{ margin:"0 0 4px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>🍽️ Saldo do cartão refeição da família</p>
         <p style={{ margin:0, fontSize:28, fontWeight:800, color:saldo>=0?C.income:C.expense, letterSpacing:"-0.5px" }}>{fmt(saldo)}</p>
       </Card>
 
@@ -1438,7 +1511,7 @@ function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, o
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
                 <p style={{ margin:0, fontSize:14, fontWeight:600 }}>{m.descricao || (m.tipo==="carregamento"?"Carregamento":m.categoria)}</p>
-                <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{m.tipo==="carregamento"?"Carregamento":m.categoria} · {m.data}</p>
+                <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{m.tipo==="carregamento"?"Carregamento":m.categoria} · {m.data} · <strong>{m.pessoa}</strong></p>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontWeight:800, fontSize:14, color:m.tipo==="carregamento"?C.income:C.expense }}>{m.tipo==="carregamento"?"+":"-"}{fmt(m.valor)}</span>
