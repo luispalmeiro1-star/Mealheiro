@@ -74,6 +74,17 @@ const LISTA_PRODUTOS = {
   "➕ Outros": [],
 };
 
+function exportarCSV(txs) {
+  const linhas = [["Data","Tipo","Categoria","Descrição","Pessoa","Valor (€)"]];
+  txs.forEach(t => linhas.push([t.data, t.tipo==="receita"?"Receita":"Despesa", t.categoria, t.descricao||"", t.pessoa||"", String(t.valor).replace(".", ",")]));
+  const csv = "﻿" + linhas.map(l => l.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `mealheiro_transacoes_${today()}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 const fmt = n => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(n || 0);
 const monthKey = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}`; };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -434,9 +445,17 @@ export default function App() {
   }
   async function deleteFixa(id) {
     if (!window.confirm("Remover esta despesa fixa? (as transações já lançadas mantêm-se)")) return;
+    const fixa = fixas.find(f=>f.id===id);
     const { error } = await supabase.from("despesas_fixas").delete().eq("id", id);
     if (error) { alert("Erro ao remover: " + error.message); return; }
     setFixas(p=>p.filter(f=>f.id!==id));
+    if (fixa) {
+      const { id:_id, created_at:_ca, ...rest } = fixa;
+      setToast({ msg:"Despesa fixa apagada 🗑️", undo: async () => {
+        const { data } = await supabase.from("despesas_fixas").insert(rest).select();
+        if (data && data[0]) setFixas(p=>[...p,data[0]].sort((a,b)=>a.dia_mes-b.dia_mes));
+      }});
+    }
   }
   async function saveBudget(categoria, limite) {
     const { error } = await supabase.from("orcamentos").upsert({categoria, limite, casa_codigo:casaCodigo}, { onConflict: "casa_codigo,categoria" });
@@ -529,7 +548,7 @@ export default function App() {
         {tab==="Resumo" && <Resumo monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} />}
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
-        {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} />}
+        {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} onToast={setToast} />}
         {tab==="Cartão Refeição" && <CartaoRefeicao carregamentos={cartaoMov} despesasCartao={txs.filter(t=>t.pago_cartao)} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} onRemoverDespesa={deleteTx} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
@@ -862,6 +881,9 @@ function Transacoes({ txs, onDelete, onEdit, fechos, ultimoFecho }) {
           </select>
         </div>
       )}
+      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:10 }}>
+        <button onClick={()=>exportarCSV(lista)} disabled={lista.length===0} style={{ background:"none", border:`1.5px solid ${C.border}`, borderRadius:9, padding:"6px 12px", cursor:lista.length===0?"default":"pointer", fontSize:12, color:C.muted, fontWeight:600, opacity:lista.length===0?0.5:1 }}>⬇️ Exportar CSV</button>
+      </div>
       <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar…" style={{ flex:1, minWidth:140, padding:"8px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:13, outline:"none" }} />
         {["todos","receita","despesa"].map(f=>(
@@ -1430,7 +1452,7 @@ function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, o
   );
 }
 
-function Emprestimos({ emprestimos, setEmprestimos, casaCodigo, username }) {
+function Emprestimos({ emprestimos, setEmprestimos, casaCodigo, username, onToast }) {
   const [showAdd, setShowAdd] = useState(false);
   const [f, setF] = useState({ valor:"", descricao:"", data:today() });
   const [saving, setSaving] = useState(false);
@@ -1458,9 +1480,17 @@ function Emprestimos({ emprestimos, setEmprestimos, casaCodigo, username }) {
 
   async function remover(id) {
     if (!window.confirm("Remover este registo?")) return;
+    const emp = emprestimos.find(e=>e.id===id);
     const { error } = await supabase.from("emprestimos").delete().eq("id", id);
     if (error) { alert("Erro: " + error.message); return; }
     setEmprestimos(p => p.filter(e => e.id !== id));
+    if (emp) {
+      const { id:_id, created_at:_ca, ...rest } = emp;
+      onToast?.({ msg:"Empréstimo apagado 🗑️", undo: async () => {
+        const { data } = await supabase.from("emprestimos").insert(rest).select();
+        if (data && data[0]) setEmprestimos(p=>[data[0],...p]);
+      }});
+    }
   }
 
   const pendentes = emprestimos.filter(e => !e.liquidado);
