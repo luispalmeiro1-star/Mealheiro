@@ -197,7 +197,24 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
   );
 }
 
-const TABS = ["Resumo", "Transações", "Fixas", "Empréstimos", "Cartão Refeição", "Orçamentos", "Metas", "Compras", "Quinta", "Bebé", "Prendas", "Relatórios"];
+const TABS = [
+  ["Resumo","🏠"], ["Transações","📋"], ["Fixas","🔁"], ["Empréstimos","🤝"],
+  ["Cartão Refeição","🍽️"], ["Orçamentos","📊"], ["Metas","🎯"], ["Compras","🛒"],
+  ["Quinta","🌾"], ["Bebé","👶"], ["Prendas","🎁"], ["Relatórios","📈"],
+];
+
+// Toast simples com opção de desfazer — usado sobretudo a apagar transações,
+// para evitar o "ups apaguei a errada" sem precisar de confirmação em tudo.
+function Toast({ toast, onUndo, onClose }) {
+  if (!toast) return null;
+  return (
+    <div style={{ position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", background:C.text, color:C.bg, borderRadius:12, padding:"12px 16px", display:"flex", alignItems:"center", gap:14, zIndex:300, boxShadow:"0 8px 24px rgba(0,0,0,0.3)", fontSize:13, animation:"toastIn 0.25s ease", maxWidth:"90vw" }}>
+      <span>{toast.msg}</span>
+      {toast.undo && <button onClick={onUndo} style={{ background:"none", border:"none", color:C.accent, fontWeight:800, cursor:"pointer", fontSize:13, flexShrink:0 }}>Desfazer</button>}
+      <button onClick={onClose} style={{ background:"none", border:"none", color:C.bg, opacity:0.55, cursor:"pointer", fontSize:15, flexShrink:0 }}>✕</button>
+    </div>
+  );
+}
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
@@ -223,6 +240,13 @@ export default function App() {
   const [avisos, setAvisos] = useState([]);
   const [notifOn, setNotifOn] = useState(false);
   const [temaEscuro, setTemaEscuro] = useState(temaGuardadoEscuro());
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   function alternarTema() {
     const novo = !temaEscuro;
@@ -380,9 +404,17 @@ export default function App() {
     setCartaoMov(p=>p.filter(m=>m.id!==id));
   }
   async function deleteTx(id) {
+    const tx = txs.find(t=>t.id===id);
     const { error } = await supabase.from("transacoes").delete().eq("id", id);
     if (error) { alert("Erro ao remover transação: " + error.message); return; }
     setTxs(p=>p.filter(t=>t.id!==id));
+    if (tx) {
+      const { id:_id, created_at:_ca, ...rest } = tx;
+      setToast({ msg:"Transação apagada 🗑️", undo: async () => {
+        const { data } = await supabase.from("transacoes").insert(rest).select();
+        if (data && data[0]) setTxs(p=>[data[0],...p]);
+      }});
+    }
   }
   async function updateTx(id, patch) {
     const { error } = await supabase.from("transacoes").update(patch).eq("id", id);
@@ -447,7 +479,13 @@ export default function App() {
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Inter',system-ui,sans-serif", color:C.text }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } * { box-sizing: border-box; }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes toastIn { from { opacity:0; transform:translate(-50%,10px); } to { opacity:1; transform:translate(-50%,0); } }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+        .tab-fade { animation: fadeIn 0.22s ease; }
+        * { box-sizing: border-box; }
+      `}</style>
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", position:"sticky", top:0, zIndex:10 }}>
         <div style={{ maxWidth:860, margin:"0 auto" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 0 10px" }}>
@@ -467,7 +505,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display:"flex", overflowX:"auto" }}>
-            {TABS.map(t=><button key={t} onClick={()=>setTab(t)} style={{ background:"none", border:"none", borderBottom:tab===t?`2px solid ${C.text}`:"2px solid transparent", color:tab===t?C.text:C.muted, padding:"10px 12px", cursor:"pointer", fontWeight:tab===t?700:400, fontSize:13, whiteSpace:"nowrap" }}>{t}{t==="Compras"&&lista.length>0?` (${lista.length})`:""}</button>)}
+            {TABS.map(([t,emoji])=><button key={t} onClick={()=>setTab(t)} style={{ background:"none", border:"none", borderBottom:tab===t?`2px solid ${C.text}`:"2px solid transparent", color:tab===t?C.text:C.muted, padding:"10px 12px", cursor:"pointer", fontWeight:tab===t?700:400, fontSize:13, whiteSpace:"nowrap", transition:"color 0.15s" }}>{emoji} {t}{t==="Compras"&&lista.length>0?` (${lista.length})`:""}</button>)}
           </div>
         </div>
       </div>
@@ -485,10 +523,10 @@ export default function App() {
           </div>
         </div>
       )}
-      <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }}>
+      <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }} key={tab} className="tab-fade">
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
         {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
-        {tab==="Resumo" && <Resumo monthTxs={monthTxs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} />}
+        {tab==="Resumo" && <Resumo monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} />}
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} />}
@@ -501,6 +539,7 @@ export default function App() {
         {tab==="Prendas" && <Prendas desejos={desejos} setDesejos={setDesejos} casaCodigo={casaCodigo} username={user.username} />}
         {tab==="Relatórios" && <Relatorios txs={txs} now={now} />}
       </div>
+      <Toast toast={toast} onUndo={async()=>{ if (toast?.undo) await toast.undo(); setToast(null); }} onClose={()=>setToast(null)} />
     </div>
   );
 }
@@ -550,8 +589,12 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
   );
 }
 
-function Resumo({ monthTxs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar }) {
+function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar }) {
   const saldo = receitas - despesas;
+  const gastoCartao = useMemo(() => {
+    const periodo = txs.filter(t => t.pago_cartao && (!ultimoFecho || new Date(t.created_at) > new Date(ultimoFecho.created_at)));
+    return periodo.reduce((s,t)=>s+parseFloat(t.valor),0);
+  }, [txs, ultimoFecho]);
   const [membros, setMembros] = useState([]);
   const [showCodigo, setShowCodigo] = useState(false);
   const [showFechar, setShowFechar] = useState(false);
@@ -641,14 +684,26 @@ function Resumo({ monthTxs, receitas, despesas, casaCodigo, username, fechos, ul
         </div>
       )}
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
-        {[{l:"Receitas",v:receitas,c:C.income,icon:"↑"},{l:"Despesas",v:despesas,c:C.expense,icon:"↓"},{l:"Saldo",v:saldo,c:saldo>=0?C.income:C.expense,icon:"="}].map(({l,v,c,icon})=>(
+      <Card style={{ padding:"22px 20px", textAlign:"center", cursor:"pointer", background:saldo>=0?C.income+"14":C.expense+"14", border:`1.5px solid ${saldo>=0?C.income:C.expense}40` }} onClick={alternarValores}>
+        <p style={{ margin:"0 0 6px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>💰 Saldo do período {saldo>=0?"🎉":"😅"}</p>
+        <p style={{ margin:0, fontSize:36, fontWeight:800, color:saldo>=0?C.income:C.expense, letterSpacing:"-1px" }}>{mostrar(saldo)}</p>
+      </Card>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        {[{l:"Receitas",v:receitas,c:C.income,icon:"↑"},{l:"Despesas",v:despesas,c:C.expense,icon:"↓"}].map(({l,v,c,icon})=>(
           <Card key={l} style={{ padding:"14px 16px", cursor:"pointer" }} onClick={alternarValores}>
             <p style={{ margin:"0 0 4px", fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>{icon} {l}</p>
             <p style={{ margin:0, fontSize:18, fontWeight:800, color:c, letterSpacing:"-0.5px" }}>{mostrar(v)}</p>
           </Card>
         ))}
       </div>
+
+      {gastoCartao > 0 && (
+        <Card style={{ padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontSize:13, color:C.muted }}>🍽️ Gasto no cartão refeição este período</span>
+          <span style={{ fontWeight:700, fontSize:14, color:C.accent }}>{mostrar(gastoCartao)}</span>
+        </Card>
+      )}
 
       <Card style={{ padding:"12px 18px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
@@ -947,12 +1002,17 @@ function DespesasFixas({ fixas, onAdd, onToggle, onDelete }) {
       )}
 
       {fixas.length===0 && !showAdd && <p style={{ color:C.muted, textAlign:"center", padding:"30px 0", fontSize:13 }}>Nenhuma despesa fixa ainda.</p>}
-      {fixas.map(fx=>(
+      {fixas.map(fx=>{
+        const hoje = new Date().getDate();
+        let diasProximos = fx.dia_mes - hoje;
+        if (diasProximos < 0) diasProximos += 30;
+        const proximaLabel = diasProximos===0 ? "📅 hoje" : diasProximos===1 ? "📅 amanhã" : `📅 em ${diasProximos} dias`;
+        return (
         <Card key={fx.id} style={{ marginBottom:10, padding:"14px 18px", opacity:fx.ativo?1:0.5 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <div>
               <p style={{ margin:0, fontSize:14, fontWeight:700 }}>{fx.descricao||fx.categoria}</p>
-              <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{fx.categoria} · dia {fx.dia_mes} · {fx.pessoa||"qualquer um"}{!fx.ativo&&" · pausada"}</p>
+              <p style={{ margin:"2px 0 0", fontSize:11, color:C.muted }}>{fx.categoria} · dia {fx.dia_mes} · {fx.pessoa||"qualquer um"}{!fx.ativo&&" · pausada"}{fx.ativo&&<span style={{ marginLeft:6, color:diasProximos<=2?C.accent:C.muted, fontWeight:diasProximos<=2?700:400 }}>· {proximaLabel}</span>}</p>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontWeight:800, fontSize:14, color:fx.tipo==="receita"?C.income:C.expense }}>{fx.tipo==="receita"?"+":"-"}{fmt(fx.valor)}</span>
@@ -961,7 +1021,8 @@ function DespesasFixas({ fixas, onAdd, onToggle, onDelete }) {
             </div>
           </div>
         </Card>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1504,8 +1565,22 @@ function Relatorios({ txs, now }) {
     });
   },[txs,now]);
   const tooltip = { background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, color:C.text, fontSize:12 };
+  const atual = last6[5], anterior = last6[4];
+  const difDespesas = atual.despesas - anterior.despesas;
+  const pctDif = anterior.despesas > 0 ? (difDespesas/anterior.despesas)*100 : null;
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <Card style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <span style={{ fontSize:30 }}>{difDespesas<=0?"🎉":"📈"}</span>
+        <div>
+          <p style={{ margin:0, fontSize:14, fontWeight:700 }}>
+            {difDespesas<=0
+              ? `Gastaste ${fmt(Math.abs(difDespesas))} menos do que em ${anterior.name}!`
+              : `Gastaste ${fmt(difDespesas)} mais do que em ${anterior.name}.`}
+          </p>
+          {pctDif!==null && <p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>{difDespesas<=0?"↓":"↑"} {Math.abs(pctDif).toFixed(0)}% em relação ao mês anterior</p>}
+        </div>
+      </Card>
       <Card>
         <p style={{ margin:"0 0 16px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Receitas vs Despesas (6 meses)</p>
         <ResponsiveContainer width="100%" height={220}>
