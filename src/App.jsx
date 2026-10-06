@@ -401,6 +401,12 @@ export default function App() {
     if (error) { alert("Erro ao guardar transação: " + error.message); return; }
     if (data && data[0]) setTxs(p=>[data[0],...p]);
     setShowForm(false);
+    // Avisa o resto da casa — quem registou não recebe o seu próprio aviso.
+    fetch("https://ptuqljedrqsywzmersxl.supabase.co/functions/v1/notificar-transacao", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-app-secret": "mealheiro-stock-2026" },
+      body: JSON.stringify({ casa_codigo: casaCodigo, quem: user.username, tipo: tx.tipo, valor: tx.valor, descricao: tx.descricao, categoria: tx.categoria, pago_cartao: tx.pago_cartao }),
+    }).catch(()=>{});
   }
   async function carregarCartao(valor, descricao) {
     const { data, error } = await supabase.from("cartao_refeicao_mov").insert({
