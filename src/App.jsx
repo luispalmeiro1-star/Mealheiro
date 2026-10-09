@@ -548,10 +548,10 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div style={{ display:"flex", overflowX:"auto" }}>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:"2px 4px", paddingBottom:6 }}>
             {TABS.map(([t,emoji])=>{
               const ativo = tab===t;
-              return <button key={t} onClick={()=>setTab(t)} title={t} style={{ background:"none", border:"none", borderBottom:ativo?`2px solid ${C.text}`:"2px solid transparent", color:ativo?C.text:C.muted, padding:ativo?"10px 12px":"10px 9px", cursor:"pointer", fontWeight:ativo?700:400, fontSize:13, whiteSpace:"nowrap", transition:"color 0.15s" }}>{emoji}{ativo&&<> {t}</>}{t==="Compras"&&lista.length>0?` (${lista.length})`:""}</button>;
+              return <button key={t} onClick={()=>setTab(t)} style={{ background:ativo?C.faint:"none", border:"none", borderRadius:8, color:ativo?C.text:C.muted, padding:"7px 10px", cursor:"pointer", fontWeight:ativo?700:400, fontSize:12.5, whiteSpace:"nowrap", transition:"background 0.15s, color 0.15s" }}>{emoji} {t}{t==="Compras"&&lista.length>0?` (${lista.length})`:""}</button>;
             })}
           </div>
         </div>
