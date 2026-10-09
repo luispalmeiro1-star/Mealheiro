@@ -208,10 +208,12 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
   );
 }
 
+// Ordenados por uso real (nº de registos em cada tabela) — os mais usados
+// no dia a dia ficam à frente, os mais ocasionais ficam no fim.
 const TABS = [
-  ["Resumo","🏠"], ["Transações","📋"], ["Fixas","🔁"], ["Empréstimos","🤝"],
-  ["Cartão Refeição","🍽️"], ["Orçamentos","📊"], ["Metas","🎯"], ["Compras","🛒"],
-  ["Quinta","🌾"], ["Bebé","👶"], ["Prendas","🎁"], ["Relatórios","📈"],
+  ["Resumo","🏠"], ["Transações","📋"], ["Compras","🛒"], ["Cartão Refeição","🍽️"],
+  ["Bebé","👶"], ["Fixas","🔁"], ["Orçamentos","📊"], ["Prendas","🎁"],
+  ["Empréstimos","🤝"], ["Quinta","🌾"], ["Metas","🎯"], ["Relatórios","📈"],
 ];
 
 // Toast simples com opção de desfazer — usado sobretudo a apagar transações,
