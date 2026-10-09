@@ -253,6 +253,7 @@ export default function App() {
   const [avisos, setAvisos] = useState([]);
   const [notifOn, setNotifOn] = useState(false);
   const [temaEscuro, setTemaEscuro] = useState(temaGuardadoEscuro());
+  const [menuAberto, setMenuAberto] = useState(false);
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
@@ -518,23 +519,40 @@ export default function App() {
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", position:"sticky", top:0, zIndex:10 }}>
         <div style={{ maxWidth:860, margin:"0 auto" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 0 10px" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <span style={{ fontSize:24 }}>🐷</span>
-              <div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
+              <span style={{ fontSize:24, flexShrink:0 }}>🐷</span>
+              <div style={{ minWidth:0 }}>
                 <h1 style={{ margin:0, fontSize:17, fontWeight:800, letterSpacing:"-0.4px" }}>Mealheiro</h1>
-                <p style={{ margin:0, fontSize:11, color:C.muted }}>{user.username} · {MESES[now.getMonth()]} {now.getFullYear()}</p>
+                <p style={{ margin:0, fontSize:11, color:C.muted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{user.username} · {MESES[now.getMonth()]} {now.getFullYear()}</p>
               </div>
             </div>
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={()=>loadAll(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center" }}>{syncing?<Spinner />:<span style={{ fontSize:14, color:C.muted }}>↻</span>}</button>
-              <button onClick={async()=>{ const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } }} style={{ background:notifOn?C.primary:"none", color:notifOn?C.onPrimary:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14 }} title="Ativar lembretes diários">{notifOn?"🔔":"🔕"}</button>
-              <button onClick={alternarTema} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14, color:C.muted }} title="Alternar modo escuro">{temaEscuro?"☀️":"🌙"}</button>
-              <button onClick={sair} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:12, color:C.muted }}>Sair</button>
+            <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
               <button onClick={()=>setShowForm(true)} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:700, fontSize:13 }}>+ Adicionar</button>
+              <div style={{ position:"relative" }}>
+                <button onClick={()=>setMenuAberto(m=>!m)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", cursor:"pointer", display:"flex", alignItems:"center", fontSize:16, color:C.muted }}>{syncing?<Spinner />:"⋮"}</button>
+                {menuAberto && (
+                  <>
+                    <div onClick={()=>setMenuAberto(false)} style={{ position:"fixed", inset:0, zIndex:19 }} />
+                    <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, boxShadow:"0 8px 24px rgba(0,0,0,0.15)", zIndex:20, minWidth:200, overflow:"hidden" }}>
+                      {[
+                        { label:"↻ Atualizar", onClick:()=>{ loadAll(false); setMenuAberto(false); } },
+                        { label:`${notifOn?"🔔":"🔕"} ${notifOn?"Lembretes ativos":"Ativar lembretes"}`, onClick: async()=>{ setMenuAberto(false); if (notifOn) return; const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } } },
+                        { label:`${temaEscuro?"☀️ Modo claro":"🌙 Modo escuro"}`, onClick:()=>{ alternarTema(); setMenuAberto(false); } },
+                        { label:"Sair", onClick:()=>{ setMenuAberto(false); sair(); }, destaque:true },
+                      ].map(item=>(
+                        <button key={item.label} onClick={item.onClick} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderBottom:`1px solid ${C.faint}`, padding:"11px 14px", cursor:"pointer", fontSize:13, color:item.destaque?C.expense:C.text, fontWeight:item.destaque?600:400 }}>{item.label}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           <div style={{ display:"flex", overflowX:"auto" }}>
-            {TABS.map(([t,emoji])=><button key={t} onClick={()=>setTab(t)} style={{ background:"none", border:"none", borderBottom:tab===t?`2px solid ${C.text}`:"2px solid transparent", color:tab===t?C.text:C.muted, padding:"10px 12px", cursor:"pointer", fontWeight:tab===t?700:400, fontSize:13, whiteSpace:"nowrap", transition:"color 0.15s" }}>{emoji} {t}{t==="Compras"&&lista.length>0?` (${lista.length})`:""}</button>)}
+            {TABS.map(([t,emoji])=>{
+              const ativo = tab===t;
+              return <button key={t} onClick={()=>setTab(t)} title={t} style={{ background:"none", border:"none", borderBottom:ativo?`2px solid ${C.text}`:"2px solid transparent", color:ativo?C.text:C.muted, padding:ativo?"10px 12px":"10px 9px", cursor:"pointer", fontWeight:ativo?700:400, fontSize:13, whiteSpace:"nowrap", transition:"color 0.15s" }}>{emoji}{ativo&&<> {t}</>}{t==="Compras"&&lista.length>0?` (${lista.length})`:""}</button>;
+            })}
           </div>
         </div>
       </div>
