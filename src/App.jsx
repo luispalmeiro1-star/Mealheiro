@@ -1153,7 +1153,7 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
     if (!hist || hist.length === 0) return null;
     const ultimo = parseFloat(hist[hist.length-1].preco);
     const anterior = hist.length > 1 ? parseFloat(hist[hist.length-2].preco) : null;
-    const seta = anterior===null ? null : ultimo>anterior ? "↑" : ultimo<anterior ? "↓" : "=";
+    const seta = anterior===null ? null : ultimo>anterior ? "↑" : ultimo<anterior ? "↓" : null;
     const cor = seta==="↑" ? C.expense : seta==="↓" ? C.income : C.muted;
     return { ultimo, seta, cor };
   }
