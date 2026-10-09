@@ -1287,10 +1287,12 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
                     return (
                       <div key={p} style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
                         <div style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
-                          <button onClick={()=>toggle(p)} style={{ padding:"7px 13px", borderRadius:99, border:`1.5px solid ${sel?C.primary:C.border}`, background:sel?C.primary:C.bg, color:sel?C.onPrimary:C.text, cursor:"pointer", fontSize:13, fontWeight:sel?600:400, paddingRight:isCustom?28:13 }}>{sel?"✓ ":""}{p}</button>
+                          <button onClick={()=>toggle(p)} style={{ display:"flex", flexDirection:"column", alignItems:"center", lineHeight:1.3, padding:info?"5px 13px 6px":"7px 13px", borderRadius:99, border:`1.5px solid ${sel?C.primary:C.border}`, background:sel?C.primary:C.bg, color:sel?C.onPrimary:C.text, cursor:"pointer", fontSize:13, fontWeight:sel?600:400, paddingRight:isCustom?28:13 }}>
+                            <span>{sel?"✓ ":""}{p}</span>
+                            {info && <span style={{ fontSize:10, fontWeight:700, color:sel?C.onPrimary+"cc":info.cor }}>{fmt(info.ultimo)}{info.seta?` ${info.seta}`:""}</span>}
+                          </button>
                           {isCustom&&<button onClick={e=>{e.stopPropagation();removerCustom(cat,p);}} style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:sel?C.onPrimary+"88":C.muted, fontSize:11, padding:0 }}>✕</button>}
                         </div>
-                        {info && <span style={{ fontSize:11, fontWeight:700, color:info.cor }}>{fmt(info.ultimo)}{info.seta?` ${info.seta}`:""}</span>}
                         {sel&&<input type="text" placeholder="qtd" defaultValue={qtdMap[p]||""} onBlur={e=>atualizarQtd(p,e.target.value)} style={{ width:52, padding:"5px 7px", borderRadius:99, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, outline:"none", textAlign:"center" }} />}
                       </div>
                     );
