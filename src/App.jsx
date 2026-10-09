@@ -240,6 +240,7 @@ export default function App() {
   const [desejos, setDesejos] = useState([]);
   const [fixas, setFixas] = useState([]);
   const [listaQuinta, setListaQuinta] = useState([]);
+  const [precos, setPrecos] = useState([]);
   const [quintaHistorico, setQuintaHistorico] = useState([]);
   const [emprestimos, setEmprestimos] = useState([]);
   const [fechos, setFechos] = useState([]);
@@ -296,7 +297,7 @@ export default function App() {
   async function loadAll(isFirstLoad = false) {
     if (!casaCodigo) return;
     setSyncing(true);
-    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr, kr, hr] = await Promise.all([
+    const [tr, br, gr, lr, sr, cr, dr, fr, qr, er, mr, kr, hr, pr] = await Promise.all([
       supabase.from("transacoes").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("orcamentos").select("*").eq("casa_codigo", casaCodigo),
       supabase.from("metas").select("*").eq("casa_codigo", casaCodigo),
@@ -310,8 +311,9 @@ export default function App() {
       supabase.from("fechos_mes").select("*").eq("casa_codigo", casaCodigo).order("data_fim", { ascending: false }),
       supabase.from("cartao_refeicao_mov").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
       supabase.from("quinta_historico").select("*").eq("casa_codigo", casaCodigo).order("id", { ascending: false }),
+      supabase.from("precos_produtos").select("*").eq("casa_codigo", casaCodigo).order("data", { ascending: true }),
     ]);
-    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [], k = kr.data || [], hq = hr.data || [];
+    const t = tr.data || [], b = br.data || [], g = gr.data || [], l = lr.data || [], s = sr.data || [], c = cr.data || [], d = dr.data || [], f = fr.data || [], q = qr.data || [], e = er.data || [], m = mr.data || [], k = kr.data || [], hq = hr.data || [], pc = pr.data || [];
 
     // Detect changes since last visit
     if (isFirstLoad) {
@@ -331,7 +333,7 @@ export default function App() {
 
     // Save last visit AFTER we've seen everything
     localStorage.setItem("ml_last_visit", new Date().toISOString());
-    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m); setCartaoMov(k); setQuintaHistorico(hq);
+    setTxs(t); setBudgets(b); setGoals(g); setLista(l); setStock(s); setCustomProds(cpMap); setDesejos(d); setFixas(f); setListaQuinta(q); setEmprestimos(e); setFechos(m); setCartaoMov(k); setQuintaHistorico(hq); setPrecos(pc);
     setLoading(false); setSyncing(false);
   }
 
@@ -340,7 +342,7 @@ export default function App() {
   // Ouve alterações feitas por outras pessoas da casa (ex: Luis adiciona, Ines vê logo)
   useEffect(() => {
     if (!casaCodigo) return;
-    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes", "cartao_refeicao_mov", "quinta_historico"];
+    const tabelas = ["transacoes", "orcamentos", "metas", "lista_compras", "stock_bebe", "custom_produtos", "desejos", "despesas_fixas", "produtos_quinta", "emprestimos", "fechos_mes", "cartao_refeicao_mov", "quinta_historico", "precos_produtos"];
     const channel = supabase.channel(`casa-${casaCodigo}`);
     tabelas.forEach(tabela => {
       channel.on("postgres_changes", { event: "*", schema: "public", table: tabela, filter: `casa_codigo=eq.${casaCodigo}` }, () => loadAll(false));
@@ -361,7 +363,7 @@ export default function App() {
 
   async function sair() {
     await supabase.auth.signOut();
-    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]); setCartaoMov([]); setQuintaHistorico([]);
+    setTxs([]); setBudgets([]); setGoals([]); setLista([]); setStock([]); setCustomProds({}); setDesejos([]); setFixas([]); setListaQuinta([]); setEmprestimos([]); setFechos([]); setCartaoMov([]); setQuintaHistorico([]); setPrecos([]);
   }
 
   const now = new Date();
@@ -560,7 +562,7 @@ export default function App() {
         {tab==="Cartão Refeição" && <CartaoRefeicao carregamentos={cartaoMov} despesasCartao={txs.filter(t=>t.pago_cartao)} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} onRemoverDespesa={deleteTx} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
-        {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} />}
+        {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} precos={precos} setPrecos={setPrecos} />}
         {tab==="Quinta" && <ListaQuinta lista={listaQuinta} setLista={setListaQuinta} casaCodigo={casaCodigo} username={user.username} historico={quintaHistorico} setHistorico={setQuintaHistorico} />}
         {tab==="Bebé" && <StockBebe stock={stock} setStock={setStock} casaCodigo={casaCodigo} lista={lista} setLista={setLista} username={user.username} onAlerta={msg=>setAvisos(p=>[msg,...p])} />}
         {tab==="Prendas" && <Prendas desejos={desejos} setDesejos={setDesejos} casaCodigo={casaCodigo} username={user.username} />}
@@ -1128,7 +1130,7 @@ function Metas({ goals, onAdd, onUpdate, onDelete }) {
   );
 }
 
-function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setCustomProds }) {
+function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setCustomProds, precos, setPrecos }) {
   const [view, setView] = useState("selecionar");
   const [search, setSearch] = useState("");
   const [catAberta, setCatAberta] = useState(null);
@@ -1137,6 +1139,31 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
 
   const listaAtiva = lista.map(r => r.produto);
   const qtdMap = useMemo(() => { const m={}; lista.forEach(r=>{ if(r.quantidade) m[r.produto]=r.quantidade; }); return m; }, [lista]);
+
+  // Histórico de preços por produto, do mais antigo para o mais recente (já
+  // vem ordenado por data da query) — usado para mostrar o último preço e
+  // se subiu/desceu desde a vez anterior que foi registado.
+  const precosPorProduto = useMemo(() => {
+    const m = {};
+    (precos||[]).forEach(p => { m[p.produto] = [...(m[p.produto]||[]), p]; });
+    return m;
+  }, [precos]);
+  function infoPreco(produto) {
+    const hist = precosPorProduto[produto];
+    if (!hist || hist.length === 0) return null;
+    const ultimo = parseFloat(hist[hist.length-1].preco);
+    const anterior = hist.length > 1 ? parseFloat(hist[hist.length-2].preco) : null;
+    const seta = anterior===null ? null : ultimo>anterior ? "↑" : ultimo<anterior ? "↓" : "=";
+    const cor = seta==="↑" ? C.expense : seta==="↓" ? C.income : C.muted;
+    return { ultimo, seta, cor };
+  }
+  async function registarPreco(produto, valorStr) {
+    const preco = parseFloat(String(valorStr).replace(",", "."));
+    if (!preco || isNaN(preco)) return;
+    const { data, error } = await supabase.from("precos_produtos").insert({ casa_codigo: casaCodigo, produto, preco, pessoa: username }).select();
+    if (error) { alert("Erro ao registar preço: " + error.message); return; }
+    if (data && data[0]) setPrecos(p => [...p, data[0]]);
+  }
 
   const catalogoCompleto = useMemo(()=>{
     const base={...LISTA_PRODUTOS};
@@ -1211,13 +1238,18 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
         {lista.length===0?<Card><p style={{ color:C.muted, textAlign:"center", padding:"20px 0" }}>Lista vazia!</p></Card>:Object.entries(porCat).map(([cat,prods])=>(
           <Card key={cat} style={{ marginBottom:12, padding:"14px 18px" }}>
             <p style={{ margin:"0 0 10px", fontSize:13, fontWeight:700, color:C.muted }}>{cat}</p>
-            {prods.map(p=>(
+            {prods.map(p=>{
+              const info = infoPreco(p);
+              return (
               <div key={p} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:`1px solid ${C.faint}` }}>
                 <div onClick={()=>comprado(p)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${C.border}`, background:C.bg, flexShrink:0, cursor:"pointer" }} />
                 <span onClick={()=>comprado(p)} style={{ fontSize:15, flex:1, cursor:"pointer" }}>{p}</span>
                 {qtdMap[p] && <span style={{ fontSize:13, fontWeight:700, color:C.muted, background:C.faint, borderRadius:6, padding:"3px 10px", flexShrink:0 }}>{qtdMap[p]}</span>}
+                {info && <span style={{ fontSize:12, fontWeight:700, color:info.cor, flexShrink:0 }}>{fmt(info.ultimo)}{info.seta?` ${info.seta}`:""}</span>}
+                <input type="number" step="0.01" placeholder="€" onKeyDown={e=>{if(e.key==="Enter"){registarPreco(p,e.target.value);e.target.value="";e.target.blur();}}} onBlur={e=>{if(e.target.value){registarPreco(p,e.target.value);e.target.value="";}}} style={{ width:48, padding:"5px 6px", borderRadius:6, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, outline:"none", textAlign:"center", flexShrink:0 }} />
               </div>
-            ))}
+              );
+            })}
           </Card>
         ))}
         {lista.length>0&&<button onClick={limpar} style={{ width:"100%", marginTop:8, padding:"12px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.muted, cursor:"pointer", fontSize:14, fontWeight:600 }}>🗑 Limpar lista (já comprei tudo)</button>}
@@ -1251,12 +1283,14 @@ function ListaCompras({ lista, setLista, casaCodigo, username, customProds, setC
                   {prods.map(p=>{
                     const sel=listaAtiva.includes(p);
                     const isCustom=(customProds[cat]||[]).includes(p);
+                    const info=infoPreco(p);
                     return (
                       <div key={p} style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
                         <div style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
                           <button onClick={()=>toggle(p)} style={{ padding:"7px 13px", borderRadius:99, border:`1.5px solid ${sel?C.primary:C.border}`, background:sel?C.primary:C.bg, color:sel?C.onPrimary:C.text, cursor:"pointer", fontSize:13, fontWeight:sel?600:400, paddingRight:isCustom?28:13 }}>{sel?"✓ ":""}{p}</button>
                           {isCustom&&<button onClick={e=>{e.stopPropagation();removerCustom(cat,p);}} style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:sel?C.onPrimary+"88":C.muted, fontSize:11, padding:0 }}>✕</button>}
                         </div>
+                        {info && <span style={{ fontSize:11, fontWeight:700, color:info.cor }}>{fmt(info.ultimo)}{info.seta?` ${info.seta}`:""}</span>}
                         {sel&&<input type="text" placeholder="qtd" defaultValue={qtdMap[p]||""} onBlur={e=>atualizarQtd(p,e.target.value)} style={{ width:52, padding:"5px 7px", borderRadius:99, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, outline:"none", textAlign:"center" }} />}
                       </div>
                     );
