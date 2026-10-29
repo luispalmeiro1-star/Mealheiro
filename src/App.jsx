@@ -579,7 +579,7 @@ export default function App() {
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} onToast={setToast} />}
-        {tab==="Cartão Refeição" && <CartaoRefeicao carregamentos={cartaoMov} despesasCartao={txs.filter(t=>t.pago_cartao)} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} onRemoverDespesa={deleteTx} />}
+        {tab==="Cartão Refeição" && <CartaoRefeicao carregamentos={cartaoMov} despesasCartao={txs.filter(t=>t.pago_cartao)} username={user.username} onCarregar={carregarCartao} onRemover={removerMovCartao} onRemoverDespesa={deleteTx} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Orçamentos" && <Orcamentos monthTxs={monthTxs} budgets={budgets} onSave={saveBudget} />}
         {tab==="Metas" && <Metas goals={goals} onAdd={addGoal} onUpdate={updateGoal} onDelete={deleteGoal} />}
         {tab==="Compras" && <ListaCompras lista={lista} setLista={setLista} casaCodigo={casaCodigo} username={user.username} customProds={customProds} setCustomProds={setCustomProds} precos={precos} setPrecos={setPrecos} />}
@@ -1513,19 +1513,32 @@ function ListaQuinta({ lista, setLista, casaCodigo, username, historico, setHist
 // ── Cartão Refeição ──────────────────────────────────────────────────────────
 // Movimentos pessoais (cada um só vê e gere o seu próprio cartão), fora das
 // contas da família — despesas pagas com ele nunca entram em "transacoes".
-function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, onRemover, onRemoverDespesa }) {
+function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, onRemover, onRemoverDespesa, fechos, ultimoFecho }) {
   const [showCarregar, setShowCarregar] = useState(false);
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [saving, setSaving] = useState(false);
+  // "Fechar o mês" também fecha o cartão refeição — por omissão só mostra os
+  // movimentos desde o último fecho, tal como acontece nas Transações.
+  const [periodo, setPeriodo] = useState("atual");
 
   // O cartão refeição é um só, partilhado por toda a casa — carregamentos e
   // despesas de qualquer pessoa da família entram no mesmo saldo único.
-  const meus = useMemo(() => {
+  const todos = useMemo(() => {
     const todosCarregamentos = carregamentos.map(m => ({ ...m, origem:"carregamento" }));
     const todasDespesas = despesasCartao.map(t => ({ ...t, tipo:"despesa", origem:"despesa" }));
     return [...todosCarregamentos, ...todasDespesas].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
   }, [carregamentos, despesasCartao]);
+
+  const meus = useMemo(() => {
+    if (periodo === "todos") return todos;
+    if (periodo === "atual") return ultimoFecho ? todos.filter(m => new Date(m.created_at) > new Date(ultimoFecho.created_at)) : todos;
+    const i = fechos.findIndex(f => String(f.id) === periodo);
+    if (i === -1) return todos;
+    const f = fechos[i];
+    const anterior = fechos[i+1];
+    return todos.filter(m => new Date(m.created_at) <= new Date(f.created_at) && (!anterior || new Date(m.created_at) > new Date(anterior.created_at)));
+  }, [todos, periodo, ultimoFecho, fechos]);
   const saldo = useMemo(() => meus.reduce((s,m) => s + (m.tipo==="carregamento" ? parseFloat(m.valor) : -parseFloat(m.valor)), 0), [meus]);
 
   async function guardarCarregamento() {
@@ -1538,6 +1551,15 @@ function CartaoRefeicao({ carregamentos, despesasCartao, username, onCarregar, o
 
   return (
     <div>
+      {fechos.length > 0 && (
+        <div style={{ marginBottom:12 }}>
+          <select value={periodo} onChange={e=>setPeriodo(e.target.value)} style={{ width:"100%", padding:"7px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+            <option value="atual">📁 Período atual</option>
+            <option value="todos">Todo o histórico</option>
+            {fechos.map(f=><option key={f.id} value={String(f.id)}>{f.nome}</option>)}
+          </select>
+        </div>
+      )}
       <Card style={{ padding:"18px 20px", marginBottom:16 }}>
         <p style={{ margin:"0 0 4px", fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>🍽️ Saldo do cartão refeição da família</p>
         <p style={{ margin:0, fontSize:28, fontWeight:800, color:saldo>=0?C.income:C.expense, letterSpacing:"-0.5px" }}>{fmt(saldo)}</p>
