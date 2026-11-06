@@ -5,6 +5,24 @@ import { createClient } from "@supabase/supabase-js";
 const SB_URL = "https://ptuqljedrqsywzmersxl.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0dXFsamVkcnFzeXd6bWVyc3hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NzM3MTcsImV4cCI6MjEwMjE0OTcxN30.QV4XHYqNT1j2trlqH9iHe-tu_w4KSmFU-3RoXLVEGw4";
 const supabase = createClient(SB_URL, SB_KEY);
+
+// Login por utilizador OU email, resolvido no servidor (o email real nunca chega ao browser).
+async function entrarNoServidor(identificador, password) {
+  try {
+    const r = await fetch(`${SB_URL}/functions/v1/entrar`, { method:"POST", headers:{ "Content-Type":"application/json", apikey:SB_KEY }, body: JSON.stringify({ identificador, password }) });
+    if (!r.ok) return false;
+    const s = await r.json();
+    const { error } = await supabase.auth.setSession({ access_token:s.access_token, refresh_token:s.refresh_token });
+    return !error;
+  } catch { return false; }
+}
+// As funções de notificação exigem sessão: a casa e o nome vêm sempre do token.
+async function chamarFuncao(nome, corpo) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) return;
+  fetch(`${SB_URL}/functions/v1/${nome}`, { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}` }, body: JSON.stringify(corpo) }).catch(()=>{});
+}
 const VAPID_PUBLIC_KEY = "BKW_ApWBzs6bLipifF8L8xdDyxWbDuLpRGYlTDXZWf-BZ1BfXlzbFQhVqfSht-666Ri-wHMKfbaBLfdL1_DAttU";
 
 function urlBase64ToUint8Array(base64String) {
@@ -105,49 +123,61 @@ function IconTx({ tipo, size=16, cor }) {
 }
 
 // ── Ecrã de Login ─────────────────────────────────────────────────────────────
-// Login/registo passam por funções RPC no Supabase (registar_utilizador, resolver_email):
+// Login por edge function "entrar" (utilizador ou email) e registo por RPC (registar_utilizador):
 // a password nunca é guardada nem comparada em texto simples — quem trata disso é o
 // Supabase Auth. Depois de autenticado, o resto da app segue a sessão via onAuthStateChange.
 function EcraLogin({ temaEscuro, onAlternarTema }) {
-  const [passo, setPasso] = useState("inicio"); // inicio | login | registo | juntar
+  const [passo, setPasso] = useState("inicio"); // inicio | login | registo | juntar | recuperar
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [codigoCasa, setCodigoCasa] = useState("");
   const [erro, setErro] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function ir(p) { setPasso(p); setErro(""); setInfo(""); }
+
   async function fazerLogin() {
-    if (!username.trim() || !password.trim()) return setErro("Preenche todos os campos.");
+    if (!username.trim() || !password) return setErro("Preenche todos os campos.");
     setLoading(true); setErro("");
-    const { data: email } = await supabase.rpc("resolver_email", { p_username: username.trim() });
-    if (!email) { setErro("Utilizador ou password incorretos."); setLoading(false); return; }
-    const { error } = await supabase.auth.signInWithPassword({ email, password: password.trim() });
-    if (error) { setErro("Utilizador ou password incorretos."); setLoading(false); return; }
+    const ok = await entrarNoServidor(username.trim(), password);
+    if (!ok) setErro("Utilizador/email ou password incorretos.");
     setLoading(false);
   }
 
   async function registar(comCasa) {
-    if (!username.trim() || !password.trim()) return setErro("Preenche todos os campos.");
-    if (password.trim().length < 6) return setErro("A password tem de ter pelo menos 6 caracteres.");
-    if (comCasa && !codigoCasa.trim()) return setErro("Indica o código da casa.");
+    if (!username.trim() || !email.trim() || !password) return setErro("Preenche todos os campos.");
+    if (password.length < 8) return setErro("A password tem de ter pelo menos 8 caracteres.");
+    if (comCasa && !codigoCasa.trim()) return setErro("Indica o código de convite.");
     setLoading(true); setErro("");
-
     const { error } = await supabase.rpc("registar_utilizador", {
       p_username: username.trim(),
-      p_password: password.trim(),
+      p_password: password,
       p_casa_codigo: comCasa ? codigoCasa.trim() : null,
+      p_email: email.trim(),
     });
     if (error) { setErro(error.message); setLoading(false); return; }
+    const ok = await entrarNoServidor(username.trim(), password);
+    if (!ok) { setInfo("Conta criada. Agora entra com o teu utilizador e password."); setPasso("login"); }
+    setLoading(false);
+  }
 
-    const { data: email } = await supabase.rpc("resolver_email", { p_username: username.trim() });
-    const { error: erroLogin } = await supabase.auth.signInWithPassword({ email, password: password.trim() });
-    if (erroLogin) { setErro("Conta criada. Agora entra com o teu utilizador e password."); setPasso("login"); setLoading(false); return; }
+  async function pedirRecuperacao() {
+    if (!username.trim()) return setErro("Indica o teu utilizador ou email.");
+    setLoading(true); setErro(""); setInfo("");
+    try {
+      await fetch(`${SB_URL}/functions/v1/recuperar`, { method:"POST", headers:{ "Content-Type":"application/json", apikey:SB_KEY }, body: JSON.stringify({ identificador: username.trim(), redirect_to: window.location.origin }) });
+    } catch {}
+    setInfo("Se existir uma conta com esse utilizador ou email, enviámos um link para repores a password. Vê também a pasta de spam. Se a tua conta é antiga e nunca registaste um email, pede ajuda a quem te convidou.");
     setLoading(false);
   }
 
   const inputStyle = { width:"100%", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:15, outline:"none", boxSizing:"border-box", marginBottom:12 };
   const btnPrimary = { width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:15, opacity:loading?0.7:1, marginBottom:8 };
   const btnSecondary = { width:"100%", padding:"13px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600, fontSize:15 };
+  const msgErro = erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>;
+  const msgInfo = info && <p style={{ color:C.income, fontSize:13, marginBottom:10, lineHeight:1.5 }}>{info}</p>;
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif", padding:24, position:"relative" }}>
@@ -162,9 +192,9 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
 
         {passo === "inicio" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-            <button onClick={()=>setPasso("login")} style={btnPrimary}>Entrar</button>
-            <button onClick={()=>setPasso("registo")} style={btnSecondary}>Criar conta nova</button>
-            <button onClick={()=>setPasso("juntar")} style={{...btnSecondary, marginTop:4}}>Juntar a uma casa existente</button>
+            <button onClick={()=>ir("login")} style={btnPrimary}>Entrar</button>
+            <button onClick={()=>ir("registo")} style={btnSecondary}>Criar conta nova</button>
+            <button onClick={()=>ir("juntar")} style={{...btnSecondary, marginTop:4}}>Juntar a uma casa existente</button>
             <p style={{ margin:"8px 0 0", textAlign:"center", fontSize:12.5, color:C.muted, lineHeight:1.5 }}>Primeira vez? <b>Criar conta nova</b> se és o primeiro da casa. Se alguém te convidou, usa <b>Juntar a uma casa existente</b> com o código que te deram. Depois de entrares, mostramos-te como tudo funciona.</p>
           </div>
         )}
@@ -172,23 +202,36 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
         {passo === "login" && (
           <Card>
             <h3 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Entrar</h3>
-            <input placeholder="Utilizador" value={username} onChange={e=>setUsername(e.target.value)} style={inputStyle} />
+            <input placeholder="Utilizador ou email" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
             <input placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&fazerLogin()} style={inputStyle} />
-            {erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>}
+            {msgErro}{msgInfo}
             <button onClick={fazerLogin} disabled={loading} style={btnPrimary}>{loading?"A entrar…":"Entrar"}</button>
-            <button onClick={()=>{setPasso("inicio");setErro("");}} style={btnSecondary}>Voltar</button>
+            <button onClick={()=>ir("recuperar")} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13, padding:"4px 0 12px", width:"100%", textDecoration:"underline" }}>Esqueci-me da password</button>
+            <button onClick={()=>ir("inicio")} style={btnSecondary}>Voltar</button>
+          </Card>
+        )}
+
+        {passo === "recuperar" && (
+          <Card>
+            <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Recuperar password</h3>
+            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Indica o teu utilizador ou email. Enviamos-te um link para escolheres uma nova password.</p>
+            <input placeholder="Utilizador ou email" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            {msgErro}{msgInfo}
+            <button onClick={pedirRecuperacao} disabled={loading} style={btnPrimary}>{loading?"A enviar…":"Enviar link"}</button>
+            <button onClick={()=>ir("login")} style={btnSecondary}>Voltar</button>
           </Card>
         )}
 
         {passo === "registo" && (
           <Card>
             <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🏠 Nova conta</h3>
-            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e uma casa nova. Partilha o código com a família.</p>
-            <input placeholder="Utilizador (ex: luis)" value={username} onChange={e=>setUsername(e.target.value)} style={inputStyle} />
-            <input placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
-            {erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>}
+            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e uma casa só tua. Podes convidar outras pessoas mais tarde.</p>
+            <input placeholder="Utilizador (ex: luis)" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            <input placeholder="Email (para recuperares a password)" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            <input placeholder="Password (mín. 8 caracteres)" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
+            {msgErro}
             <button onClick={()=>registar(false)} disabled={loading} style={btnPrimary}>{loading?"A criar…":"Criar conta e casa"}</button>
-            <button onClick={()=>{setPasso("inicio");setErro("");}} style={btnSecondary}>Voltar</button>
+            <button onClick={()=>ir("inicio")} style={btnSecondary}>Voltar</button>
           </Card>
         )}
 
@@ -196,15 +239,79 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
           <Card>
             <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Juntar a uma casa</h3>
             <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e junta-te com o código de convite que o dono da conta te deu.</p>
-            <input placeholder="Utilizador (ex: ines)" value={username} onChange={e=>setUsername(e.target.value)} style={inputStyle} />
-            <input placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
+            <input placeholder="Utilizador (ex: ines)" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            <input placeholder="Email (para recuperares a password)" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            <input placeholder="Password (mín. 8 caracteres)" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
             <input placeholder="Código de convite (ex: ABCD-EFGH)" value={codigoCasa} onChange={e=>setCodigoCasa(e.target.value.toUpperCase())} style={{...inputStyle, letterSpacing:2, fontWeight:700}} />
-            {erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>}
+            {msgErro}
             <button onClick={()=>registar(true)} disabled={loading} style={btnPrimary}>{loading?"A entrar…":"Criar conta e entrar"}</button>
-            <button onClick={()=>{setPasso("inicio");setErro("");}} style={btnSecondary}>Voltar</button>
+            <button onClick={()=>ir("inicio")} style={btnSecondary}>Voltar</button>
           </Card>
         )}
       </div>
+    </div>
+  );
+}
+
+// Ecrã mostrado quando alguém chega pelo link de recuperação enviado por email.
+function EcraNovaPassword({ onFeito }) {
+  const [nova, setNova] = useState("");
+  const [conf, setConf] = useState("");
+  const [erro, setErro] = useState("");
+  const [loading, setLoading] = useState(false);
+  async function guardar() {
+    if (nova.length < 8) return setErro("A password tem de ter pelo menos 8 caracteres.");
+    if (nova !== conf) return setErro("As passwords não coincidem.");
+    setLoading(true); setErro("");
+    const { error } = await supabase.auth.updateUser({ password: nova });
+    setLoading(false);
+    if (error) return setErro(error.message);
+    onFeito();
+  }
+  const inputStyle = { width:"100%", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:15, outline:"none", boxSizing:"border-box", marginBottom:12 };
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif", padding:24 }}>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        <Card>
+          <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Nova password</h3>
+          <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Escolhe a tua nova password (mínimo 8 caracteres).</p>
+          <input placeholder="Nova password" type="password" value={nova} onChange={e=>setNova(e.target.value)} style={inputStyle} />
+          <input placeholder="Repete a password" type="password" value={conf} onChange={e=>setConf(e.target.value)} onKeyDown={e=>e.key==="Enter"&&guardar()} style={inputStyle} />
+          {erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>}
+          <button onClick={guardar} disabled={loading} style={{ width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:15, opacity:loading?0.7:1 }}>{loading?"A guardar…":"Guardar e entrar"}</button>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// Contas antigas (criadas sem email) podem juntar um email para recuperarem a password.
+function AvisoEmail({ onFeito }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [erro, setErro] = useState("");
+  const [loading, setLoading] = useState(false);
+  async function guardar() {
+    if (!email.trim() || !password) return setErro("Preenche o email e a tua password atual.");
+    setLoading(true); setErro("");
+    const { error } = await supabase.rpc("definir_email", { p_email: email.trim(), p_password: password });
+    setLoading(false);
+    if (error) return setErro(error.message);
+    onFeito(email.trim().toLowerCase());
+  }
+  const inp = { padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none", flex:"1 1 150px", minWidth:0, boxSizing:"border-box" };
+  return (
+    <div style={{ maxWidth:860, margin:"16px auto 0", padding:"0 16px" }}>
+      <Card style={{ padding:"14px 18px", borderColor:"#FDE68A" }}>
+        <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:700, color:C.text }}>📧 Adiciona o teu email</p>
+        <p style={{ margin:"0 0 10px", fontSize:12.5, color:C.muted }}>Sem email não consegues recuperar a password se a perderes. Confirma com a tua password atual.</p>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+          <input placeholder="O teu email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoCapitalize="none" style={inp} />
+          <input placeholder="Password atual" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inp} />
+          <button onClick={guardar} disabled={loading} style={{ padding:"9px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:13 }}>{loading?"…":"Guardar"}</button>
+        </div>
+        {erro && <p style={{ color:C.expense, fontSize:12.5, margin:"8px 0 0" }}>{erro}</p>}
+      </Card>
     </div>
   );
 }
@@ -309,6 +416,7 @@ function Toast({ toast, onUndo, onClose }) {
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
+  const [aRecuperar, setARecuperar] = useState(false);
   const [user, setUser] = useState(undefined); // undefined = a verificar, null = sem sessão, {..} = autenticado
 
   const [tab, setTab] = useState("Resumo");
@@ -367,7 +475,7 @@ export default function App() {
   // isto reage e carrega o utilizador da casa correspondente.
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => { if (event === "PASSWORD_RECOVERY") setARecuperar(true); setSession(sess); });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -378,7 +486,7 @@ export default function App() {
     // automaticamente), não voltamos a mostrar o ecrã de loading nem a repetir o pedido.
     if (user && user.id !== undefined && session.user.id === user.auth_id) return;
     setLoading(true);
-    supabase.from("utilizadores").select("id,username,casa_codigo,auth_id,papel").eq("auth_id", session.user.id).single()
+    supabase.from("utilizadores").select("id,username,casa_codigo,auth_id,papel,auth_email").eq("auth_id", session.user.id).single()
       .then(({ data }) => setUser(data || null));
   }, [session]);
 
@@ -492,11 +600,7 @@ export default function App() {
     if (data && data[0]) setTxs(p=>[data[0],...p]);
     setShowForm(false);
     // Avisa o resto da casa — quem registou não recebe o seu próprio aviso.
-    fetch("https://ptuqljedrqsywzmersxl.supabase.co/functions/v1/notificar-transacao", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-app-secret": "mealheiro-stock-2026" },
-      body: JSON.stringify({ casa_codigo: casaCodigo, quem: user.username, tipo: tx.tipo, valor: tx.valor, descricao: tx.descricao, categoria: tx.categoria, pago_cartao: tx.pago_cartao }),
-    }).catch(()=>{});
+    chamarFuncao("notificar-transacao", { casa_codigo: casaCodigo, quem: user.username, tipo: tx.tipo, valor: tx.valor, descricao: tx.descricao, categoria: tx.categoria, pago_cartao: tx.pago_cartao });
   }
   async function carregarCartao(valor, descricao) {
     const { data, error } = await supabase.from("cartao_refeicao_mov").insert({
@@ -575,6 +679,8 @@ export default function App() {
     if (error) { alert("Erro ao remover meta: " + error.message); return; }
     setGoals(p=>p.filter(g=>g.id!==id));
   }
+
+  if (aRecuperar && session) return <EcraNovaPassword onFeito={() => { setARecuperar(false); window.history.replaceState(null, "", window.location.pathname); }} />;
 
   if (session === undefined || user === undefined) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -658,6 +764,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {user.auth_email && user.auth_email.endsWith("@mealheiro.local") && <AvisoEmail onFeito={(em) => setUser(u => ({ ...u, auth_email: em }))} />}
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }} key={tab} className="tab-fade">
         {showGuia && <Guia onFechar={fecharGuia} />}
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
@@ -1975,11 +2082,7 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username, onA
           ? `${item.produto} acabou! Adicionado à lista de compras.`
           : `${item.produto} está a acabar (${novaQtd} ${item.unidade}) — adicionado à lista de compras.`;
         onAlerta?.(msg);
-        fetch("https://ptuqljedrqsywzmersxl.supabase.co/functions/v1/notificar-stock-baixo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-app-secret": "mealheiro-stock-2026" },
-          body: JSON.stringify({ casa_codigo: casaCodigo, produto: item.produto, quantidade: novaQtd, unidade: item.unidade, quem: username }),
-        }).catch(()=>{});
+        chamarFuncao("notificar-stock-baixo", { casa_codigo: casaCodigo, produto: item.produto, quantidade: novaQtd, unidade: item.unidade, quem: username });
       }
       // Remove from lista if above minimum
       if (novaQtd > item.minimo && listaAtiva.includes(item.produto)) {
@@ -2003,11 +2106,7 @@ function StockBebe({ stock, setStock, casaCodigo, lista, setLista, username, onA
       const { data } = await supabase.from("lista_compras").insert({ casa_codigo: casaCodigo, produto: item.produto, quantidade: null, adicionado_por: username }).select();
       if (data && data[0]) setLista(l => [...l, data[0]]);
       onAlerta?.(`${item.produto} está abaixo do mínimo (${item.quantidade} ${item.unidade}) — adicionado à lista de compras.`);
-      fetch("https://ptuqljedrqsywzmersxl.supabase.co/functions/v1/notificar-stock-baixo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-app-secret": "mealheiro-stock-2026" },
-        body: JSON.stringify({ casa_codigo: casaCodigo, produto: item.produto, quantidade: item.quantidade, unidade: item.unidade, quem: username }),
-      }).catch(()=>{});
+      chamarFuncao("notificar-stock-baixo", { casa_codigo: casaCodigo, produto: item.produto, quantidade: item.quantidade, unidade: item.unidade, quem: username });
     }
   }
 
