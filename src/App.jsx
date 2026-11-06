@@ -126,12 +126,25 @@ function IconTx({ tipo, size=16, cor }) {
 // Login por edge function "entrar" (utilizador ou email) e registo por RPC (registar_utilizador):
 // a password nunca é guardada nem comparada em texto simples — quem trata disso é o
 // Supabase Auth. Depois de autenticado, o resto da app segue a sessão via onAuthStateChange.
+function CodigoRecuperacaoBox({ codigo }) {
+  const [copiado, setCopiado] = useState(false);
+  async function copiar() { try { await navigator.clipboard.writeText(codigo); setCopiado(true); setTimeout(()=>setCopiado(false),2000); } catch { alert(codigo); } }
+  return (
+    <div style={{ textAlign:"center", margin:"6px 0 14px" }}>
+      <div style={{ fontSize:30, fontWeight:800, letterSpacing:4, color:C.text, background:C.faint, borderRadius:12, padding:"14px 8px" }}>{codigo}</div>
+      <button onClick={copiar} style={{ marginTop:10, padding:"7px 14px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontSize:13, fontWeight:600 }}>{copiado?"✓ Copiado":"📋 Copiar código"}</button>
+    </div>
+  );
+}
+
 function EcraLogin({ temaEscuro, onAlternarTema }) {
-  const [passo, setPasso] = useState("inicio"); // inicio | login | registo | juntar | recuperar
+  const [passo, setPasso] = useState("inicio"); // inicio | login | registo | juntar | recuperar | codigo
   const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [codigoCasa, setCodigoCasa] = useState("");
+  const [codigoRecup, setCodigoRecup] = useState("");
+  const [codigoMostrar, setCodigoMostrar] = useState("");
+  const [depoisDoCodigo, setDepoisDoCodigo] = useState("entrar"); // entrar | login
   const [erro, setErro] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -142,35 +155,45 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
     if (!username.trim() || !password) return setErro("Preenche todos os campos.");
     setLoading(true); setErro("");
     const ok = await entrarNoServidor(username.trim(), password);
-    if (!ok) setErro("Utilizador/email ou password incorretos.");
+    if (!ok) setErro("Utilizador ou password incorretos.");
     setLoading(false);
   }
 
   async function registar(comCasa) {
-    if (!username.trim() || !email.trim() || !password) return setErro("Preenche todos os campos.");
+    if (!username.trim() || !password) return setErro("Preenche todos os campos.");
     if (password.length < 8) return setErro("A password tem de ter pelo menos 8 caracteres.");
     if (comCasa && !codigoCasa.trim()) return setErro("Indica o código de convite.");
     setLoading(true); setErro("");
-    const { error } = await supabase.rpc("registar_utilizador", {
-      p_username: username.trim(),
-      p_password: password,
-      p_casa_codigo: comCasa ? codigoCasa.trim() : null,
-      p_email: email.trim(),
+    const { data, error } = await supabase.rpc("registar_utilizador", {
+      p_username: username.trim(), p_password: password, p_casa_codigo: comCasa ? codigoCasa.trim() : null,
     });
-    if (error) { setErro(error.message); setLoading(false); return; }
+    setLoading(false);
+    if (error) { setErro(error.message); return; }
+    setCodigoMostrar(data?.[0]?.codigo_recuperacao || "");
+    setDepoisDoCodigo("entrar");
+    setPasso("codigo");
+  }
+
+  async function continuarDepoisDoCodigo() {
+    if (depoisDoCodigo === "login") { setPassword(""); setCodigoRecup(""); ir("login"); setInfo("Password alterada. Entra com a nova password."); return; }
+    setLoading(true);
     const ok = await entrarNoServidor(username.trim(), password);
-    if (!ok) { setInfo("Conta criada. Agora entra com o teu utilizador e password."); setPasso("login"); }
+    if (!ok) { setLoading(false); setInfo("Conta criada. Agora entra com o teu utilizador e password."); setPasso("login"); return; }
     setLoading(false);
   }
 
-  async function pedirRecuperacao() {
-    if (!username.trim()) return setErro("Indica o teu utilizador ou email.");
-    setLoading(true); setErro(""); setInfo("");
-    try {
-      await fetch(`${SB_URL}/functions/v1/recuperar`, { method:"POST", headers:{ "Content-Type":"application/json", apikey:SB_KEY }, body: JSON.stringify({ identificador: username.trim(), redirect_to: window.location.origin }) });
-    } catch {}
-    setInfo("Se existir uma conta com esse utilizador ou email, enviámos um link para repores a password. Vê também a pasta de spam. Se a tua conta é antiga e nunca registaste um email, pede ajuda a quem te convidou.");
+  async function recuperar() {
+    if (!username.trim() || !codigoRecup.trim() || !password) return setErro("Preenche todos os campos.");
+    if (password.length < 8) return setErro("A nova password tem de ter pelo menos 8 caracteres.");
+    setLoading(true); setErro("");
+    const { data, error } = await supabase.rpc("recuperar_password", { p_username: username.trim(), p_codigo: codigoRecup.trim(), p_nova: password });
     setLoading(false);
+    if (error) return setErro(error.message);
+    const r = data?.[0];
+    if (!r?.ok) return setErro(r?.mensagem || "Não foi possível recuperar a password.");
+    setCodigoMostrar(r.novo_codigo || "");
+    setDepoisDoCodigo("login");
+    setPasso("codigo");
   }
 
   const inputStyle = { width:"100%", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:15, outline:"none", boxSizing:"border-box", marginBottom:12 };
@@ -202,11 +225,11 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
         {passo === "login" && (
           <Card>
             <h3 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Entrar</h3>
-            <input placeholder="Utilizador ou email" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            <input placeholder="Utilizador" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
             <input placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&fazerLogin()} style={inputStyle} />
             {msgErro}{msgInfo}
             <button onClick={fazerLogin} disabled={loading} style={btnPrimary}>{loading?"A entrar…":"Entrar"}</button>
-            <button onClick={()=>ir("recuperar")} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13, padding:"4px 0 12px", width:"100%", textDecoration:"underline" }}>Esqueci-me da password</button>
+            <button onClick={()=>{ setPassword(""); ir("recuperar"); }} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13, padding:"4px 0 12px", width:"100%", textDecoration:"underline" }}>Esqueci-me da password</button>
             <button onClick={()=>ir("inicio")} style={btnSecondary}>Voltar</button>
           </Card>
         )}
@@ -214,10 +237,13 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
         {passo === "recuperar" && (
           <Card>
             <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Recuperar password</h3>
-            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Indica o teu utilizador ou email. Enviamos-te um link para escolheres uma nova password.</p>
-            <input placeholder="Utilizador ou email" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
-            {msgErro}{msgInfo}
-            <button onClick={pedirRecuperacao} disabled={loading} style={btnPrimary}>{loading?"A enviar…":"Enviar link"}</button>
+            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Usa o código de recuperação de 8 caracteres que guardaste quando criaste a conta (ex: K7QM-92XD).</p>
+            <input placeholder="Utilizador" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
+            <input placeholder="Código de recuperação" value={codigoRecup} onChange={e=>setCodigoRecup(e.target.value.toUpperCase())} autoCapitalize="characters" style={{...inputStyle, letterSpacing:2, fontWeight:700}} />
+            <input placeholder="Nova password (mín. 8 caracteres)" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
+            {msgErro}
+            <button onClick={recuperar} disabled={loading} style={btnPrimary}>{loading?"A verificar…":"Mudar password"}</button>
+            <p style={{ margin:"0 0 12px", fontSize:12, color:C.muted, lineHeight:1.5 }}>Perdeste também o código? Se és membro de uma casa, o dono da conta repõe-te a password. Se és o dono, pede ajuda a quem gere a app.</p>
             <button onClick={()=>ir("login")} style={btnSecondary}>Voltar</button>
           </Card>
         )}
@@ -227,7 +253,6 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
             <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🏠 Nova conta</h3>
             <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e uma casa só tua. Podes convidar outras pessoas mais tarde.</p>
             <input placeholder="Utilizador (ex: luis)" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
-            <input placeholder="Email (para recuperares a password)" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoCapitalize="none" style={inputStyle} />
             <input placeholder="Password (mín. 8 caracteres)" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
             {msgErro}
             <button onClick={()=>registar(false)} disabled={loading} style={btnPrimary}>{loading?"A criar…":"Criar conta e casa"}</button>
@@ -240,7 +265,6 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
             <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Juntar a uma casa</h3>
             <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e junta-te com o código de convite que o dono da conta te deu.</p>
             <input placeholder="Utilizador (ex: ines)" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" style={inputStyle} />
-            <input placeholder="Email (para recuperares a password)" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoCapitalize="none" style={inputStyle} />
             <input placeholder="Password (mín. 8 caracteres)" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
             <input placeholder="Código de convite (ex: ABCD-EFGH)" value={codigoCasa} onChange={e=>setCodigoCasa(e.target.value.toUpperCase())} style={{...inputStyle, letterSpacing:2, fontWeight:700}} />
             {msgErro}
@@ -248,69 +272,69 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
             <button onClick={()=>ir("inicio")} style={btnSecondary}>Voltar</button>
           </Card>
         )}
+
+        {passo === "codigo" && (
+          <Card>
+            <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔐 Guarda o teu código</h3>
+            <p style={{ margin:"0 0 10px", fontSize:13, color:C.muted, lineHeight:1.5 }}>Este é o teu <b>código de recuperação</b>. Se te esqueceres da password, é a única forma de a recuperares. Só aparece agora: copia-o ou tira uma captura de ecrã e guarda-o num sítio seguro.</p>
+            <CodigoRecuperacaoBox codigo={codigoMostrar} />
+            <button onClick={continuarDepoisDoCodigo} disabled={loading} style={btnPrimary}>{loading?"A entrar…":"Já guardei, continuar"}</button>
+          </Card>
+        )}
       </div>
     </div>
   );
 }
 
-// Ecrã mostrado quando alguém chega pelo link de recuperação enviado por email.
-function EcraNovaPassword({ onFeito }) {
-  const [nova, setNova] = useState("");
-  const [conf, setConf] = useState("");
+// Gerar (ou substituir) o código de recuperação — pede a password atual.
+function ModalCodigo({ onFechar, onFeito }) {
+  const [password, setPassword] = useState("");
+  const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState("");
   const [loading, setLoading] = useState(false);
-  async function guardar() {
-    if (nova.length < 8) return setErro("A password tem de ter pelo menos 8 caracteres.");
-    if (nova !== conf) return setErro("As passwords não coincidem.");
+  async function gerar() {
+    if (!password) return setErro("Escreve a tua password atual.");
     setLoading(true); setErro("");
-    const { error } = await supabase.auth.updateUser({ password: nova });
+    const { data, error } = await supabase.rpc("gerar_codigo_recuperacao", { p_password: password });
     setLoading(false);
     if (error) return setErro(error.message);
-    onFeito();
+    setCodigo(data); onFeito();
   }
   const inputStyle = { width:"100%", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:15, outline:"none", boxSizing:"border-box", marginBottom:12 };
   return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif", padding:24 }}>
-      <div style={{ width:"100%", maxWidth:360 }}>
-        <Card>
-          <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Nova password</h3>
-          <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Escolhe a tua nova password (mínimo 8 caracteres).</p>
-          <input placeholder="Nova password" type="password" value={nova} onChange={e=>setNova(e.target.value)} style={inputStyle} />
-          <input placeholder="Repete a password" type="password" value={conf} onChange={e=>setConf(e.target.value)} onKeyDown={e=>e.key==="Enter"&&guardar()} style={inputStyle} />
-          {erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>}
-          <button onClick={guardar} disabled={loading} style={{ width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:15, opacity:loading?0.7:1 }}>{loading?"A guardar…":"Guardar e entrar"}</button>
-        </Card>
+    <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.6)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:24, width:"100%", maxWidth:380, boxSizing:"border-box" }}>
+        <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800, color:C.text }}>🔑 Código de recuperação</h3>
+        {!codigo ? (<>
+          <p style={{ margin:"0 0 14px", fontSize:13, color:C.muted, lineHeight:1.5 }}>Com este código recuperas a password se a perderes. Gerar um novo anula o anterior. Confirma com a tua password atual.</p>
+          <input placeholder="Password atual" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&gerar()} style={inputStyle} />
+          {erro && <p style={{ color:C.expense, fontSize:13, margin:"0 0 10px" }}>{erro}</p>}
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={onFechar} style={{ flex:1, padding:"12px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600 }}>Cancelar</button>
+            <button onClick={gerar} disabled={loading} style={{ flex:2, padding:"12px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700 }}>{loading?"…":"Gerar código"}</button>
+          </div>
+        </>) : (<>
+          <p style={{ margin:"0 0 6px", fontSize:13, color:C.muted, lineHeight:1.5 }}>Guarda-o num sítio seguro (nota no telemóvel, captura de ecrã). Só aparece agora.</p>
+          <CodigoRecuperacaoBox codigo={codigo} />
+          <button onClick={onFechar} style={{ width:"100%", padding:"12px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700 }}>Já guardei</button>
+        </>)}
       </div>
     </div>
   );
 }
 
-// Contas antigas (criadas sem email) podem juntar um email para recuperarem a password.
-function AvisoEmail({ onFeito }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [erro, setErro] = useState("");
-  const [loading, setLoading] = useState(false);
-  async function guardar() {
-    if (!email.trim() || !password) return setErro("Preenche o email e a tua password atual.");
-    setLoading(true); setErro("");
-    const { error } = await supabase.rpc("definir_email", { p_email: email.trim(), p_password: password });
-    setLoading(false);
-    if (error) return setErro(error.message);
-    onFeito(email.trim().toLowerCase());
-  }
-  const inp = { padding:"9px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, color:C.text, fontSize:14, outline:"none", flex:"1 1 150px", minWidth:0, boxSizing:"border-box" };
+// Aviso para quem ainda não tem código de recuperação (contas criadas antes desta funcionalidade).
+function AvisoCodigo({ onAbrir }) {
   return (
     <div style={{ maxWidth:860, margin:"16px auto 0", padding:"0 16px" }}>
       <Card style={{ padding:"14px 18px", borderColor:"#FDE68A" }}>
-        <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:700, color:C.text }}>📧 Adiciona o teu email</p>
-        <p style={{ margin:"0 0 10px", fontSize:12.5, color:C.muted }}>Sem email não consegues recuperar a password se a perderes. Confirma com a tua password atual.</p>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-          <input placeholder="O teu email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoCapitalize="none" style={inp} />
-          <input placeholder="Password atual" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inp} />
-          <button onClick={guardar} disabled={loading} style={{ padding:"9px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:13 }}>{loading?"…":"Guardar"}</button>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+          <div style={{ flex:"1 1 220px" }}>
+            <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:700, color:C.text }}>🔑 Gera o teu código de recuperação</p>
+            <p style={{ margin:0, fontSize:12.5, color:C.muted }}>Sem ele não consegues recuperar a password se a perderes.</p>
+          </div>
+          <button onClick={onAbrir} style={{ padding:"9px 16px", borderRadius:9, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:13 }}>Gerar código</button>
         </div>
-        {erro && <p style={{ color:C.expense, fontSize:12.5, margin:"8px 0 0" }}>{erro}</p>}
       </Card>
     </div>
   );
@@ -342,7 +366,7 @@ const PASSOS_GUIA = [
   { emoji:"👥", titulo:"Convidar mais pessoas", texto:[
     "Só o dono da conta (quem a criou) pode convidar. No Resumo, toca em \"Gerar código\".",
     "Dá o código à pessoa: ela escolhe \"Juntar a uma casa existente\" no ecrã inicial. O código vale 48h e só funciona uma vez.",
-    "Para remover alguém, o dono toca no nome da pessoa (com ✕) no Resumo.",
+    "Para remover alguém ou repor-lhe a password, o dono toca no nome da pessoa no Resumo.",
   ]},
   { emoji:"📊", titulo:"Orçamentos, Fixas e Metas", texto:[
     "Orçamentos: define um limite mensal por categoria e vê quanto já gastaste.",
@@ -362,6 +386,7 @@ const PASSOS_GUIA = [
   { emoji:"⋮", titulo:"O menu ⋮", texto:[
     "↻ Atualizar: recarrega os dados (a app também atualiza sozinha).",
     "🔔 Lembretes: avisa-te ao meio-dia e às 21h se ainda não registaste nada nesse dia.",
+    "🔑 Código de recuperação: gera e guarda o teu código de 8 caracteres. É a única forma de recuperares a password se te esqueceres.",
     "🌙 Modo escuro/claro, \"Como funciona\" para voltares a ver este guia, e \"Sair\".",
     "Quando outra pessoa mexer em algo, vês um aviso amarelo com as novidades.",
   ]},
@@ -416,7 +441,8 @@ function Toast({ toast, onUndo, onClose }) {
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = ainda não sabemos, null = sem sessão
-  const [aRecuperar, setARecuperar] = useState(false);
+  const [temCodigo, setTemCodigo] = useState(true);
+  const [showModalCodigo, setShowModalCodigo] = useState(false);
   const [user, setUser] = useState(undefined); // undefined = a verificar, null = sem sessão, {..} = autenticado
 
   const [tab, setTab] = useState("Resumo");
@@ -471,11 +497,16 @@ export default function App() {
 
   const casaCodigo = user?.casa_codigo;
 
+  useEffect(() => {
+    if (!user || user.id === undefined) return;
+    supabase.rpc("tem_codigo_recuperacao").then(({ data }) => setTemCodigo(data !== false));
+  }, [user?.id]);
+
   // Segue a sessão do Supabase Auth — login/registo/logout mexem só na sessão,
   // isto reage e carrega o utilizador da casa correspondente.
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => { if (event === "PASSWORD_RECOVERY") setARecuperar(true); setSession(sess); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -680,8 +711,6 @@ export default function App() {
     setGoals(p=>p.filter(g=>g.id!==id));
   }
 
-  if (aRecuperar && session) return <EcraNovaPassword onFeito={() => { setARecuperar(false); window.history.replaceState(null, "", window.location.pathname); }} />;
-
   if (session === undefined || user === undefined) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -728,6 +757,7 @@ export default function App() {
                     <div onClick={()=>setMenuAberto(false)} style={{ position:"fixed", inset:0, zIndex:19 }} />
                     <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, boxShadow:"0 8px 24px rgba(0,0,0,0.15)", zIndex:20, minWidth:200, overflow:"hidden" }}>
                       {[
+                        { label:"🔑 Código de recuperação", onClick:()=>{ setMenuAberto(false); setShowModalCodigo(true); } },
                         { label:"❓ Como funciona", onClick:()=>{ setMenuAberto(false); setShowGuia(true); } },
                         { label:"↻ Atualizar", onClick:()=>{ loadAll(false); setMenuAberto(false); } },
                         { label:`${notifOn?"🔔":"🔕"} ${notifOn?"Lembretes ativos":"Ativar lembretes"}`, onClick: async()=>{ setMenuAberto(false); if (notifOn) return; const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } } },
@@ -764,7 +794,8 @@ export default function App() {
           </div>
         </div>
       )}
-      {user.auth_email && user.auth_email.endsWith("@mealheiro.local") && <AvisoEmail onFeito={(em) => setUser(u => ({ ...u, auth_email: em }))} />}
+      {!temCodigo && <AvisoCodigo onAbrir={()=>setShowModalCodigo(true)} />}
+      {showModalCodigo && <ModalCodigo onFechar={()=>setShowModalCodigo(false)} onFeito={()=>setTemCodigo(true)} />}
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }} key={tab} className="tab-fade">
         {showGuia && <Guia onFechar={fecharGuia} />}
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
@@ -850,6 +881,25 @@ function Resumo({ souDono, monthTxs, txs, receitas, despesas, casaCodigo, userna
   const [convite, setConvite] = useState(null);
   const [aGerar, setAGerar] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const [membroSel, setMembroSel] = useState(null);
+  const [tempPw, setTempPw] = useState("");
+  const [aProcessar, setAProcessar] = useState(false);
+  async function reporPassword() {
+    setAProcessar(true);
+    const { data, error } = await supabase.rpc("repor_password_membro", { p_utilizador_id: membroSel.id });
+    setAProcessar(false);
+    if (error) { alert(error.message); return; }
+    setTempPw(data);
+  }
+  async function removerSel() {
+    if (!window.confirm(`Remover o membro "${membroSel.username}"? Esta ação não pode ser desfeita.`)) return;
+    setAProcessar(true);
+    const { error } = await supabase.rpc("remover_membro", { p_utilizador_id: membroSel.id });
+    setAProcessar(false);
+    if (error) { alert("Erro ao remover membro: " + error.message); return; }
+    setMembros(prev => prev.filter(x => x.id !== membroSel.id));
+    setMembroSel(null);
+  }
   function mensagemConvite() {
     return `🐷 Convite para o Mealheiro\n\n${username} convidou-te para a conta dele no Mealheiro (finanças e compras em família).\n\n1️⃣ Abre: ${window.location.origin}\n2️⃣ Toca em "Juntar a uma casa existente"\n3️⃣ Escolhe um utilizador e uma password e usa este código de convite:\n\n🔑 ${convite}\n\n⏳ Válido durante 48h e só pode ser usado uma vez.\n\n📲 Dica: no iPhone (Safari) toca em Partilhar → "Adicionar ao ecrã principal". No Android (Chrome) toca em ⋮ → "Instalar aplicação".`;
   }
@@ -996,17 +1046,28 @@ function Resumo({ souDono, monthTxs, txs, receitas, despesas, casaCodigo, userna
         {membros.length > 0 && (
           <div style={{ marginTop:8, display:"flex", flexWrap:"wrap", gap:6 }}>
             {membros.map(m => (
-              <span key={m.id} onClick={async () => {
-                if (!souDono || m.username === username) return;
-                if (window.confirm(`Remover o membro "${m.username}"?`)) {
-                  const { error } = await supabase.rpc("remover_membro", { p_utilizador_id: m.id });
-                  if (error) { alert("Erro ao remover membro: " + error.message); return; }
-                  setMembros(prev => prev.filter(x => x.id !== m.id));
-                }
-              }} style={{ fontSize:12, color:C.muted, background:C.faint, borderRadius:99, padding:"3px 10px", cursor: (!souDono||m.username===username)?"default":"pointer", border:`1px solid ${C.border}` }}>
-                👤 {m.username}{souDono && m.username !== username ? " ✕" : ""}
+              <span key={m.id} onClick={() => { if (!souDono || m.username === username) return; setTempPw(""); setMembroSel(m); }} style={{ fontSize:12, color:C.muted, background:C.faint, borderRadius:99, padding:"3px 10px", cursor: (!souDono||m.username===username)?"default":"pointer", border:`1px solid ${C.border}` }}>
+                👤 {m.username}{souDono && m.username !== username ? " ⋯" : ""}
               </span>
             ))}
+            {membroSel && (
+              <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.6)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+                <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:24, width:"100%", maxWidth:380, boxSizing:"border-box" }}>
+                  <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800, color:C.text }}>👤 {membroSel.username}</h3>
+                  {!tempPw ? (<>
+                    <p style={{ margin:"0 0 14px", fontSize:13, color:C.muted, lineHeight:1.5 }}>Se esta pessoa perdeu a password, gera uma temporária e dá-lha. Ela deve mudá-la depois com o código de recuperação.</p>
+                    <button onClick={reporPassword} disabled={aProcessar} style={{ width:"100%", padding:"12px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, marginBottom:8 }}>{aProcessar?"…":"🔑 Repor password"}</button>
+                    <button onClick={removerSel} disabled={aProcessar} style={{ width:"100%", padding:"12px 0", borderRadius:12, border:`1.5px solid ${C.expense}`, background:"none", color:C.expense, cursor:"pointer", fontWeight:600, marginBottom:8 }}>Remover da conta</button>
+                    <button onClick={()=>setMembroSel(null)} style={{ width:"100%", padding:"12px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600 }}>Cancelar</button>
+                  </>) : (<>
+                    <p style={{ margin:"0 0 6px", fontSize:13, color:C.muted, lineHeight:1.5 }}>Password temporária de {membroSel.username} (aparece só agora). Todas as sessões dessa pessoa foram terminadas.</p>
+                    <div style={{ fontSize:24, fontWeight:800, letterSpacing:2, textAlign:"center", color:C.text, background:C.faint, borderRadius:12, padding:"14px 8px", margin:"10px 0 14px", userSelect:"all" }}>{tempPw}</div>
+                    <button onClick={()=>{ try { navigator.clipboard.writeText(tempPw); } catch {} }} style={{ width:"100%", padding:"11px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600, marginBottom:8 }}>📋 Copiar</button>
+                    <button onClick={()=>{ setTempPw(""); setMembroSel(null); }} style={{ width:"100%", padding:"12px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700 }}>Fechar</button>
+                  </>)}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Card>
