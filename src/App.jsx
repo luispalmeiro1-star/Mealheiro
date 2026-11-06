@@ -194,10 +194,10 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
         {passo === "juntar" && (
           <Card>
             <h3 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>🔑 Juntar a uma casa</h3>
-            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e junta-te à casa da família com o código.</p>
+            <p style={{ margin:"0 0 16px", fontSize:13, color:C.muted }}>Cria a tua conta e junta-te com o código de convite que o dono da conta te deu.</p>
             <input placeholder="Utilizador (ex: ines)" value={username} onChange={e=>setUsername(e.target.value)} style={inputStyle} />
             <input placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} />
-            <input placeholder="Código da casa (ex: ABC-XYZ)" value={codigoCasa} onChange={e=>setCodigoCasa(e.target.value.toUpperCase())} style={{...inputStyle, letterSpacing:2, fontWeight:700}} />
+            <input placeholder="Código de convite (ex: ABCD-EFGH)" value={codigoCasa} onChange={e=>setCodigoCasa(e.target.value.toUpperCase())} style={{...inputStyle, letterSpacing:2, fontWeight:700}} />
             {erro && <p style={{ color:C.expense, fontSize:13, marginBottom:10 }}>{erro}</p>}
             <button onClick={()=>registar(true)} disabled={loading} style={btnPrimary}>{loading?"A entrar…":"Criar conta e entrar"}</button>
             <button onClick={()=>{setPasso("inicio");setErro("");}} style={btnSecondary}>Voltar</button>
@@ -293,7 +293,7 @@ export default function App() {
     // automaticamente), não voltamos a mostrar o ecrã de loading nem a repetir o pedido.
     if (user && user.id !== undefined && session.user.id === user.auth_id) return;
     setLoading(true);
-    supabase.from("utilizadores").select("id,username,casa_codigo,auth_id").eq("auth_id", session.user.id).single()
+    supabase.from("utilizadores").select("id,username,casa_codigo,auth_id,papel").eq("auth_id", session.user.id).single()
       .then(({ data }) => setUser(data || null));
   }, [session]);
 
@@ -575,7 +575,7 @@ export default function App() {
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }} key={tab} className="tab-fade">
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
         {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
-        {tab==="Resumo" && <Resumo monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} fixas={fixas} />}
+        {tab==="Resumo" && <Resumo souDono={user.papel==="dono"} monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} fixas={fixas} />}
         {tab==="Transações" && <Transacoes txs={txs} onDelete={deleteTx} onEdit={setEditando} fechos={fechos} ultimoFecho={ultimoFecho} />}
         {tab==="Fixas" && <DespesasFixas fixas={fixas} onAdd={addFixa} onToggle={toggleFixa} onDelete={deleteFixa} />}
         {tab==="Empréstimos" && <Emprestimos emprestimos={emprestimos} setEmprestimos={setEmprestimos} casaCodigo={casaCodigo} username={user.username} onToast={setToast} />}
@@ -638,7 +638,7 @@ function TransacaoModal({ username, onClose, onSave, editing }) {
   );
 }
 
-function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar, fixas }) {
+function Resumo({ souDono, monthTxs, txs, receitas, despesas, casaCodigo, username, fechos, ultimoFecho, onFechar, fixas }) {
   const saldo = receitas - despesas;
   const gastoCartao = useMemo(() => {
     const periodo = txs.filter(t => t.pago_cartao && (!ultimoFecho || new Date(t.created_at) > new Date(ultimoFecho.created_at)));
@@ -653,7 +653,15 @@ function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fecho
     return { falta, itens: porLancar };
   }, [fixas]);
   const [membros, setMembros] = useState([]);
-  const [showCodigo, setShowCodigo] = useState(false);
+  const [convite, setConvite] = useState(null);
+  const [aGerar, setAGerar] = useState(false);
+  async function gerarConvite() {
+    setAGerar(true);
+    const { data, error } = await supabase.rpc("novo_convite");
+    setAGerar(false);
+    if (error) { alert(error.message); return; }
+    setConvite(data);
+  }
   const [showFechar, setShowFechar] = useState(false);
   const [nomeFecho, setNomeFecho] = useState("");
   const [fechando, setFechando] = useState(false);
@@ -772,25 +780,27 @@ function Resumo({ monthTxs, txs, receitas, despesas, casaCodigo, username, fecho
       )}
 
       <Card style={{ padding:"12px 18px" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
           <div>
-            <p style={{ margin:0, fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Código da casa</p>
-            {showCodigo ? <p style={{ margin:"4px 0 0", fontSize:20, fontWeight:800, letterSpacing:3, color:C.text }}>{casaCodigo}</p> : <p style={{ margin:"4px 0 0", fontSize:13, color:C.muted }}>Partilha com a tua família para se juntarem</p>}
+            <p style={{ margin:0, fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Convidar membro</p>
+            {!souDono ? <p style={{ margin:"4px 0 0", fontSize:13, color:C.muted }}>Só o dono da conta pode convidar pessoas.</p>
+              : convite ? <><p style={{ margin:"4px 0 0", fontSize:20, fontWeight:800, letterSpacing:3, color:C.text }}>{convite}</p><p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>Válido 48h e só serve uma vez.</p></>
+              : <p style={{ margin:"4px 0 0", fontSize:13, color:C.muted }}>Gera um código de convite para adicionar alguém à tua conta.</p>}
           </div>
-          <button onClick={()=>setShowCodigo(s=>!s)} style={{ padding:"7px 14px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontSize:13, fontWeight:600 }}>{showCodigo?"Esconder":"Ver código"}</button>
+          {souDono && <button onClick={gerarConvite} disabled={aGerar} style={{ padding:"7px 14px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontSize:13, fontWeight:600 }}>{aGerar?"…":convite?"Novo código":"Gerar código"}</button>}
         </div>
         {membros.length > 0 && (
           <div style={{ marginTop:8, display:"flex", flexWrap:"wrap", gap:6 }}>
             {membros.map(m => (
               <span key={m.id} onClick={async () => {
-                if (m.username === username) return alert("Não podes remover a tua própria conta.");
+                if (!souDono || m.username === username) return;
                 if (window.confirm(`Remover o membro "${m.username}"?`)) {
                   const { error } = await supabase.rpc("remover_membro", { p_utilizador_id: m.id });
                   if (error) { alert("Erro ao remover membro: " + error.message); return; }
                   setMembros(prev => prev.filter(x => x.id !== m.id));
                 }
-              }} style={{ fontSize:12, color:C.muted, background:C.faint, borderRadius:99, padding:"3px 10px", cursor: m.username===username?"default":"pointer", border:`1px solid ${C.border}` }}>
-                👤 {m.username}{m.username !== username ? " ✕" : ""}
+              }} style={{ fontSize:12, color:C.muted, background:C.faint, borderRadius:99, padding:"3px 10px", cursor: (!souDono||m.username===username)?"default":"pointer", border:`1px solid ${C.border}` }}>
+                👤 {m.username}{souDono && m.username !== username ? " ✕" : ""}
               </span>
             ))}
           </div>
