@@ -334,8 +334,13 @@ export default function App() {
   const [notifOn, setNotifOn] = useState(false);
   const [temaEscuro, setTemaEscuro] = useState(temaGuardadoEscuro());
   const [menuAberto, setMenuAberto] = useState(false);
-  const [showGuia, setShowGuia] = useState(() => { try { return !localStorage.getItem("ml_guia_visto"); } catch { return false; } });
-  function fecharGuia() { setShowGuia(false); try { localStorage.setItem("ml_guia_visto", "1"); } catch {} }
+  const [showGuia, setShowGuia] = useState(false);
+  const chaveGuia = user && user.id !== undefined ? `ml_guia_visto_${user.id}` : null;
+  useEffect(() => {
+    if (!chaveGuia) { setShowGuia(false); return; }
+    try { setShowGuia(!localStorage.getItem(chaveGuia)); } catch { setShowGuia(false); }
+  }, [chaveGuia]);
+  function fecharGuia() { setShowGuia(false); try { if (chaveGuia) localStorage.setItem(chaveGuia, "1"); } catch {} }
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
