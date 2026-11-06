@@ -165,6 +165,7 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
             <button onClick={()=>setPasso("login")} style={btnPrimary}>Entrar</button>
             <button onClick={()=>setPasso("registo")} style={btnSecondary}>Criar conta nova</button>
             <button onClick={()=>setPasso("juntar")} style={{...btnSecondary, marginTop:4}}>Juntar a uma casa existente</button>
+            <p style={{ margin:"8px 0 0", textAlign:"center", fontSize:12.5, color:C.muted, lineHeight:1.5 }}>Primeira vez? <b>Criar conta nova</b> se és o primeiro da casa. Se alguém te convidou, usa <b>Juntar a uma casa existente</b> com o código que te deram. Depois de entrares, mostramos-te como tudo funciona.</p>
           </div>
         )}
 
@@ -203,6 +204,83 @@ function EcraLogin({ temaEscuro, onAlternarTema }) {
             <button onClick={()=>{setPasso("inicio");setErro("");}} style={btnSecondary}>Voltar</button>
           </Card>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Guia de boas-vindas ───────────────────────────────────────────────────────
+// Aparece automaticamente na primeira vez que alguém entra e fica sempre
+// disponível no menu ⋮ → "Como funciona".
+const PASSOS_GUIA = [
+  { emoji:"🐷", titulo:"Bem-vindo ao Mealheiro", texto:[
+    "Aqui registas receitas e despesas, controlas orçamentos e poupanças e partilhas a lista de compras com quem vive contigo.",
+    "A tua conta é privada: só tu e as pessoas que convidares vêem os vossos dados. Mais ninguém.",
+  ]},
+  { emoji:"📲", titulo:"Instalar no telemóvel", texto:[
+    "iPhone (Safari): toca em Partilhar (o quadrado com a seta) → \"Adicionar ao ecrã principal\".",
+    "Android (Chrome): toca nos três pontinhos ⋮ → \"Instalar aplicação\" ou \"Adicionar ao ecrã inicial\".",
+    "Fica com o ícone do porquinho 🐷 e abre como uma app normal.",
+  ]},
+  { emoji:"➕", titulo:"Registar uma despesa ou receita", texto:[
+    "Toca em \"+ Adicionar\" no topo. Escolhe se é despesa ou receita, o valor, a categoria e a data.",
+    "Para o salário, regista uma receita no dia em que o recebes, seja qual for a data.",
+    "Em \"Transações\" vês tudo, podes editar, apagar (com opção de desfazer) e exportar para CSV.",
+  ]},
+  { emoji:"🏠", titulo:"Resumo", texto:[
+    "O ecrã inicial mostra o saldo do mês, o que entrou, o que saiu e as contribuições de cada pessoa.",
+    "\"Fechar mês\" guarda o período atual no histórico e começa um novo, sem perderes nada.",
+    "Aqui também convidas e geres os membros da conta (ver o passo seguinte).",
+  ]},
+  { emoji:"👥", titulo:"Convidar mais pessoas", texto:[
+    "Só o dono da conta (quem a criou) pode convidar. No Resumo, toca em \"Gerar código\".",
+    "Dá o código à pessoa: ela escolhe \"Juntar a uma casa existente\" no ecrã inicial. O código vale 48h e só funciona uma vez.",
+    "Para remover alguém, o dono toca no nome da pessoa (com ✕) no Resumo.",
+  ]},
+  { emoji:"📊", titulo:"Orçamentos, Fixas e Metas", texto:[
+    "Orçamentos: define um limite mensal por categoria e vê quanto já gastaste.",
+    "Fixas: despesas e receitas que se repetem todos os meses (renda, internet, ordenado). São lançadas sozinhas no dia certo.",
+    "Metas: cria objetivos de poupança e vai juntando dinheiro com \"Adicionar €\".",
+  ]},
+  { emoji:"🛒", titulo:"Compras, Bebé e Quinta", texto:[
+    "Compras: escolhe os produtos que faltam, indica as quantidades e todos veem a mesma lista em tempo real. Podes adicionar produtos que não existam.",
+    "Bebé: controla o stock (fraldas, leite…). Define tu o mínimo e, quando ficar abaixo, o produto vai automaticamente para as Compras.",
+    "Quinta: lista do que é preciso ir buscar à quinta; depois de ires, limpas a lista e fica o histórico do que costumas trazer.",
+  ]},
+  { emoji:"🍽️", titulo:"Mais separadores", texto:[
+    "Cartão Refeição: carregamentos e despesas do cartão.",
+    "Empréstimos: dinheiro que emprestaste ou te emprestaram, com opção de marcar como liquidado.",
+    "Prendas: ideias de prendas por ocasião. Relatórios: gráficos e comparações por mês e categoria.",
+  ]},
+  { emoji:"⋮", titulo:"O menu ⋮", texto:[
+    "↻ Atualizar: recarrega os dados (a app também atualiza sozinha).",
+    "🔔 Lembretes: avisa-te ao meio-dia e às 21h se ainda não registaste nada nesse dia.",
+    "🌙 Modo escuro/claro, \"Como funciona\" para voltares a ver este guia, e \"Sair\".",
+    "Quando outra pessoa mexer em algo, vês um aviso amarelo com as novidades.",
+  ]},
+];
+
+function Guia({ onFechar }) {
+  const [i, setI] = useState(0);
+  const p = PASSOS_GUIA[i];
+  const ultimo = i === PASSOS_GUIA.length - 1;
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(28,25,23,0.6)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:24, width:"100%", maxWidth:400, maxHeight:"90vh", overflowY:"auto", boxSizing:"border-box" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontSize:12, fontWeight:700, color:C.muted }}>{i+1} / {PASSOS_GUIA.length}</span>
+          <button onClick={onFechar} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13, fontWeight:600 }}>Saltar</button>
+        </div>
+        <div style={{ textAlign:"center", fontSize:46, margin:"6px 0 8px" }}>{p.emoji}</div>
+        <h3 style={{ margin:"0 0 14px", fontSize:20, fontWeight:800, textAlign:"center", color:C.text }}>{p.titulo}</h3>
+        {p.texto.map((t,k)=><p key={k} style={{ margin:"0 0 10px", fontSize:14, lineHeight:1.5, color:C.text }}>{t}</p>)}
+        <div style={{ display:"flex", justifyContent:"center", gap:6, margin:"14px 0 16px" }}>
+          {PASSOS_GUIA.map((_,k)=><span key={k} onClick={()=>setI(k)} style={{ width:k===i?18:7, height:7, borderRadius:99, background:k===i?C.primary:C.border, cursor:"pointer", transition:"width 0.2s" }} />)}
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          {i>0 && <button onClick={()=>setI(i-1)} style={{ flex:1, padding:"12px 0", borderRadius:12, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontWeight:600, fontSize:14 }}>Anterior</button>}
+          <button onClick={()=>ultimo?onFechar():setI(i+1)} style={{ flex:2, padding:"12px 0", borderRadius:12, border:"none", background:C.primary, color:C.onPrimary, cursor:"pointer", fontWeight:700, fontSize:14 }}>{ultimo?"Começar 🚀":"Seguinte"}</button>
+        </div>
       </div>
     </div>
   );
@@ -256,6 +334,8 @@ export default function App() {
   const [notifOn, setNotifOn] = useState(false);
   const [temaEscuro, setTemaEscuro] = useState(temaGuardadoEscuro());
   const [menuAberto, setMenuAberto] = useState(false);
+  const [showGuia, setShowGuia] = useState(() => { try { return !localStorage.getItem("ml_guia_visto"); } catch { return false; } });
+  function fecharGuia() { setShowGuia(false); try { localStorage.setItem("ml_guia_visto", "1"); } catch {} }
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
@@ -537,6 +617,7 @@ export default function App() {
                     <div onClick={()=>setMenuAberto(false)} style={{ position:"fixed", inset:0, zIndex:19 }} />
                     <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, boxShadow:"0 8px 24px rgba(0,0,0,0.15)", zIndex:20, minWidth:200, overflow:"hidden" }}>
                       {[
+                        { label:"❓ Como funciona", onClick:()=>{ setMenuAberto(false); setShowGuia(true); } },
                         { label:"↻ Atualizar", onClick:()=>{ loadAll(false); setMenuAberto(false); } },
                         { label:`${notifOn?"🔔":"🔕"} ${notifOn?"Lembretes ativos":"Ativar lembretes"}`, onClick: async()=>{ setMenuAberto(false); if (notifOn) return; const ok = await ativarLembretes(user.username, casaCodigo, user.auth_id); if (ok) { setNotifOn(true); alert("Lembretes ativados! Vais receber uma notificação ao meio-dia e às 21h se ainda não tiveres registado nada nesse dia."); } } },
                         { label:`${temaEscuro?"☀️ Modo claro":"🌙 Modo escuro"}`, onClick:()=>{ alternarTema(); setMenuAberto(false); } },
@@ -573,6 +654,7 @@ export default function App() {
         </div>
       )}
       <div style={{ maxWidth:860, margin:"0 auto", padding:"24px 16px" }} key={tab} className="tab-fade">
+        {showGuia && <Guia onFechar={fecharGuia} />}
         {showForm && <TransacaoModal username={user.username} onClose={()=>setShowForm(false)} onSave={addTx} />}
         {editando && <TransacaoModal username={user.username} editing={editando} onClose={()=>setEditando(null)} onSave={patch=>updateTx(editando.id, patch)} />}
         {tab==="Resumo" && <Resumo souDono={user.papel==="dono"} monthTxs={monthTxs} txs={txs} receitas={receitas} despesas={despesas} casaCodigo={casaCodigo} username={user.username} fechos={fechos} ultimoFecho={ultimoFecho} onFechar={fecharMes} fixas={fixas} />}
