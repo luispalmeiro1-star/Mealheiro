@@ -742,6 +742,16 @@ function Resumo({ souDono, monthTxs, txs, receitas, despesas, casaCodigo, userna
   const [membros, setMembros] = useState([]);
   const [convite, setConvite] = useState(null);
   const [aGerar, setAGerar] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  function mensagemConvite() {
+    return `🐷 Convite para o Mealheiro\n\n${username} convidou-te para a conta dele no Mealheiro (finanças e compras em família).\n\n1️⃣ Abre: ${window.location.origin}\n2️⃣ Toca em "Juntar a uma casa existente"\n3️⃣ Escolhe um utilizador e uma password e usa este código de convite:\n\n🔑 ${convite}\n\n⏳ Válido durante 48h e só pode ser usado uma vez.\n\n📲 Dica: no iPhone (Safari) toca em Partilhar → "Adicionar ao ecrã principal". No Android (Chrome) toca em ⋮ → "Instalar aplicação".`;
+  }
+  function partilharWhatsApp() { window.open(`https://wa.me/?text=${encodeURIComponent(mensagemConvite())}`, "_blank", "noopener"); }
+  async function copiarConvite() {
+    try { await navigator.clipboard.writeText(mensagemConvite()); setCopiado(true); setTimeout(()=>setCopiado(false), 2000); }
+    catch { alert(mensagemConvite()); }
+  }
+  async function partilharNativo() { try { await navigator.share({ title:"Convite Mealheiro", text:mensagemConvite() }); } catch {} }
   async function gerarConvite() {
     setAGerar(true);
     const { data, error } = await supabase.rpc("novo_convite");
@@ -871,7 +881,7 @@ function Resumo({ souDono, monthTxs, txs, receitas, despesas, casaCodigo, userna
           <div>
             <p style={{ margin:0, fontSize:12, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8 }}>Convidar membro</p>
             {!souDono ? <p style={{ margin:"4px 0 0", fontSize:13, color:C.muted }}>Só o dono da conta pode convidar pessoas.</p>
-              : convite ? <><p style={{ margin:"4px 0 0", fontSize:20, fontWeight:800, letterSpacing:3, color:C.text }}>{convite}</p><p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>Válido 48h e só serve uma vez.</p></>
+              : convite ? <><p style={{ margin:"4px 0 0", fontSize:20, fontWeight:800, letterSpacing:3, color:C.text }}>{convite}</p><p style={{ margin:"2px 0 0", fontSize:12, color:C.muted }}>Válido 48h e só serve uma vez.</p><div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}><button onClick={partilharWhatsApp} style={{ padding:"7px 12px", borderRadius:9, border:"none", background:"#25D366", color:"#fff", cursor:"pointer", fontSize:12.5, fontWeight:700 }}>💬 Enviar por WhatsApp</button>{typeof navigator!=="undefined" && navigator.share && <button onClick={partilharNativo} style={{ padding:"7px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontSize:12.5, fontWeight:600 }}>↗ Partilhar</button>}<button onClick={copiarConvite} style={{ padding:"7px 12px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontSize:12.5, fontWeight:600 }}>{copiado?"✓ Copiado":"📋 Copiar mensagem"}</button></div></>
               : <p style={{ margin:"4px 0 0", fontSize:13, color:C.muted }}>Gera um código de convite para adicionar alguém à tua conta.</p>}
           </div>
           {souDono && <button onClick={gerarConvite} disabled={aGerar} style={{ padding:"7px 14px", borderRadius:9, border:`1.5px solid ${C.border}`, background:"none", color:C.text, cursor:"pointer", fontSize:13, fontWeight:600 }}>{aGerar?"…":convite?"Novo código":"Gerar código"}</button>}
